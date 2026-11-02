@@ -553,7 +553,13 @@ final class InstanceSession: Identifiable {
         await adb.quietSensors()
         if config.isLite { await applyLiteEdition() }
         await installAgent(apk)
-        if AppSettings.shared.macInputMethod { await connectIME() }
+        if AppSettings.shared.macInputMethod {
+            await connectIME()
+        } else if config.isMinimal {
+            // Minimal has no Gboard: VexIME becomes the keyboard, passing the Mac's keys straight through,
+            // unless the user has picked another one since.
+            await selectIME(onlyIfNone: true)
+        }
         await adb.resetSensorRate()
 
         // Without the IME nothing inside Android resets the sensor rate on its own (VexIME does every minute).
@@ -563,17 +569,30 @@ final class InstanceSession: Identifiable {
         }
     }
 
-    /// Disables the Lite package list once per list version; the cached-process limit is DeviceConfig
+    /// Disables the Lite (or Minimal) package list once per list version; the cached-process limit is DeviceConfig
     /// and lasts until reboot, so it is set on every boot (after quietSensors paused DeviceConfig sync).
     private func applyLiteEdition() async {
         _ = try? await adb.shell("device_config put activity_manager max_cached_processes \(LiteEdition.maxCachedProcesses)")
-        let marker = "lite@\(LiteEdition.version)"
+        let minimal = config.isMinimal
+        let marker = minimal ? "minimal@\(LiteEdition.version).\(LiteEdition.minimalVersion)" : "lite@\(LiteEdition.version)"
         guard (try? String(contentsOf: config.liteMarkerFile, encoding: .utf8)) != marker else { return }
         // `cmd package` talks to the package service directly: no Java start-up per package as with `pm`.
-        let packages = LiteEdition.disabledPackages.joined(separator: " ")
-        _ = try? await adb.shell("for p in \(packages); do cmd package disable-user --user 0 $p >/dev/null 2>&1; done; true")
+        let list = minimal ? LiteEdition.minimalPackages : LiteEdition.disabledPackages
+        let settings = minimal ? LiteEdition.minimalSettings.map { "\($0) >/dev/null 2>&1; " }.joined() : ""
+        guard (try? await adb.shell("for p in \(list.joined(separator: " ")); do cmd package disable-user --user 0 $p >/dev/null 2>&1; done; \(settings)true")) != nil else {
+            return appendLog("\(minimal ? "Minimal" : "Lite") edition not applied: adb failed, retrying next boot\n")
+        }
+        if minimal {
+            // The Bluetooth process takes ~8 s to exit after `disable`; a Quickboot snapshot taken before that
+            // brings it back half-stopped and it crashes on restore.
+            for _ in 0..<30 where !Task.isCancelled {
+                guard let pid = try? await adb.shell("pidof com.google.android.bluetooth; true"),
+                      !pid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { break }
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
         try? marker.write(to: config.liteMarkerFile, atomically: true, encoding: .utf8)
-        appendLog("Lite edition applied (\(LiteEdition.disabledPackages.count) packages disabled)\n")
+        appendLog("\(minimal ? "Minimal" : "Lite") edition applied (\(list.count) packages disabled)\n")
     }
 
     private func installAgent(_ apk: URL) async {
@@ -595,8 +614,24 @@ final class InstanceSession: Identifiable {
         }
     }
 
+    /// Makes VexIME the keyboard. Right after its first install Android doesn't list it yet, so `ime set`
+    /// fails quietly for a moment: retry until Android reports it as the current input method.
+    /// With `onlyIfNone`, leaves a keyboard the user picked alone and only fills an empty choice.
+    private func selectIME(onlyIfNone: Bool = false) async {
+        let current = "settings get secure default_input_method"
+        if onlyIfNone, let ime = try? await adb.shell(current).trimmingCharacters(in: .whitespacesAndNewlines),
+           !ime.isEmpty, ime != "null" { return }
+        let command = "ime enable \(ImeBridge.component) >/dev/null 2>&1; ime set \(ImeBridge.component) >/dev/null 2>&1; \(current)"
+        for _ in 0..<30 where !Task.isCancelled {
+            if (try? await adb.shell(command))?.trimmingCharacters(in: .whitespacesAndNewlines) == ImeBridge.component { return }
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+        if !Task.isCancelled { appendLog("VexIME couldn't be made the keyboard\n") }
+    }
+
     private func connectIME() async {
-        _ = try? await adb.shell("ime enable \(ImeBridge.component); ime set \(ImeBridge.component)")
+        await selectIME()
+        guard !Task.isCancelled else { return }
         guard let port = try? PortAllocator.freePort(in: 27183...27383) else { return }
         do {
             try await adb.run(["forward", "tcp:\(port)", "localabstract:\(ImeBridge.socketName)"])

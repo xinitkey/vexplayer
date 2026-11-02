@@ -237,8 +237,8 @@ struct InstanceRow: View {
 
     private var details: String {
         let image = SDKManager.shared.image(forPath: config.imagePath)
-        let version = (image?.title ?? config.platform) + (config.isLite ? " Lite" : "")
-        return String(localized: "\(version) · \(String(config.width))×\(String(config.height)) · \(config.dpi) dpi · \(config.cpuCores) cores · \(config.ramMB / 1024) GB")
+        let version = (image?.title ?? config.platform) + (config.isMinimal ? " Minimal" : config.isLite ? " Lite" : "")
+        return String(localized: "\(version) · \(String(config.width))×\(String(config.height)) · \(config.dpi) dpi · \(config.cpuCores) cores · \(InstanceConfig.gigabytes(config.ramMB)) GB")
     }
 
     private var stateText: String {

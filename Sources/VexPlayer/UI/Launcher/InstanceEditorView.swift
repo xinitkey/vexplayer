@@ -28,21 +28,21 @@ struct InstanceEditorView: View {
     private var isNew: Bool { if case .new = target { return true } else { return false } }
     private var image: SDKPackage? { sdk.image(forPath: config.imagePath) }
 
-    /// Every installed image is offered twice: as is and as its Lite edition.
+    /// Every installed image is offered as is and as Lite; Android 16 and newer also as Minimal.
     private struct ImageChoice: Hashable {
         let path: String
-        let lite: Bool
+        let edition: ImageEdition
     }
 
     private var imageChoice: Binding<ImageChoice> {
         Binding(
-            get: { ImageChoice(path: config.imagePath, lite: config.isLite) },
+            get: { ImageChoice(path: config.imagePath, edition: config.edition) },
             set: { choice in
-                if choice.lite != config.isLite {
-                    config.ramMB = choice.lite ? InstanceConfig.defaultLiteRAM : InstanceConfig.defaultRAM
+                if choice.edition != config.edition {
+                    config.ramMB = InstanceConfig.defaultRAM(for: choice.edition)
                 }
                 config.imagePath = choice.path
-                config.lite = choice.lite ? true : nil
+                config.edition = choice.edition
             })
     }
 
@@ -53,12 +53,18 @@ struct InstanceEditorView: View {
                     TextField("Name", text: $config.name)
                     Picker("Android", selection: imageChoice) {
                         ForEach(sdk.installedImages) { img in
-                            Text(img.title).tag(ImageChoice(path: img.path, lite: false))
-                            Text("\(img.title) Lite").tag(ImageChoice(path: img.path, lite: true))
+                            Text(img.title).tag(ImageChoice(path: img.path, edition: .full))
+                            Text("\(img.title) Lite").tag(ImageChoice(path: img.path, edition: .lite))
+                            if img.apiMajor >= LiteEdition.minimalMinAPI || (img.path == config.imagePath && config.isMinimal) {
+                                Text("\(img.title) Minimal").tag(ImageChoice(path: img.path, edition: .minimal))
+                            }
                         }
                     }
                     .disabled(!isNew)
-                    if config.isLite {
+                    if config.isMinimal {
+                        Text("Minimal: Lite without Google Play services, Play Store, Gboard and the system apps a game and a browser don't need; Bluetooth, location and background scanning are off. Android uses about 0.3 GB less memory than Lite and the idle instance wakes the Mac less. Install games from the browser; apps that need Google services (Play Store, Google sign-in, push notifications) won't work. Anything can be turned back on in Android's Settings → Apps.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    } else if config.isLite {
                         Text("Lite: the same Android without the Google apps and services a game doesn't need (Assistant, Photos, Gmail, Maps, YouTube and more). Android uses about 0.5 GB less memory, so the instance gets 1 GB less RAM by default. Disabled apps can be turned back on in Android's Settings → Apps.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
@@ -72,7 +78,7 @@ struct InstanceEditorView: View {
                     Stepper("CPU cores: \(config.cpuCores) of \(InstanceConfig.hostCores)",
                             value: $config.cpuCores, in: 1...max(1, InstanceConfig.hostCores))
                     Picker("Memory", selection: $config.ramMB) {
-                        ForEach(ramOptions, id: \.self) { mb in Text("\(mb / 1024) GB").tag(mb) }
+                        ForEach(ramOptions, id: \.self) { mb in Text("\(InstanceConfig.gigabytes(mb)) GB").tag(mb) }
                     }
                     Picker("Graphics", selection: $config.gpuMode) {
                         ForEach(GPUMode.allCases) { Text($0.title).tag($0) }
@@ -152,7 +158,7 @@ struct InstanceEditorView: View {
     }
 
     private var ramOptions: [Int] {
-        [2048, 3072, 4096, 6144, 8192, 12288, 16384].filter { $0 <= max(2048, InstanceConfig.hostRAMMB - 2048) }
+        [2048, 2560, 3072, 4096, 6144, 8192, 12288, 16384].filter { $0 <= max(2048, InstanceConfig.hostRAMMB - 2048) }
     }
 
     private func save() {

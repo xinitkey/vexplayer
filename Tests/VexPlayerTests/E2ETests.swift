@@ -206,6 +206,93 @@ struct E2ETests {
         if let failure { throw failure }
     }
 
+    /// Minimal, like a game instance (with the device profile on Google APIs): Google services off, VexIME the
+    /// keyboard, and Android still starts cleanly after a stop (Quickboot). The instance is deleted afterwards.
+    /// VEX_E2E_TAGS=google_apis runs one image only.
+    static let minimalTags = ProcessInfo.processInfo.environment["VEX_E2E_TAGS"]?.split(separator: ",").map(String.init)
+        ?? ["google_apis", "google_apis_playstore"]
+
+    @Test(arguments: minimalTags)
+    func minimalEdition(tag: String) async throws {
+        let path = "system-images;android-36;\(tag);arm64-v8a"
+        try #require(SDKManager.shared.installedImages.contains { $0.path == path }, "\(tag) image not installed")
+        let store = InstanceStore.shared
+        var config = InstanceConfig(id: store.nextID(), name: "E2E-Minimal", imagePath: path)
+        config.edition = .minimal
+        if tag == "google_apis" { config.deviceProfile = "galaxy_s24_ultra" }
+        config.ramMB = InstanceConfig.defaultMinimalRAM
+        config = try store.create(config)
+        let session = store.session(for: config)
+        var failure: Error?
+        do {
+            try await checkMinimal(session, config)
+        } catch {
+            failure = error
+            let why = (try? await session.adb.shell("logcat -d -b crash,system,main | grep -E 'WATCHDOG|FATAL EXCEPTION|system_server|lowmemorykiller|Out of memory|oom_kill|Killing.*pid' | tail -25; uptime; cat /proc/meminfo | head -3; true")) ?? "adb unavailable"
+            log("minimal failure context:\n\(why)")
+        }
+        dumpLog(session)
+        session.forceStop()
+        _ = await waitUntil(60) { !session.state.isAlive }
+        try store.delete(config.id)
+        if let failure { throw failure }
+    }
+
+    private func checkMinimal(_ session: InstanceSession, _ config: InstanceConfig) async throws {
+        let t0 = Date()
+        session.start()
+        try #require(await waitUntil(900) { session.state == .running || !session.state.isAlive }, "never booted")
+        log("minimal first boot (incl. profile + reboots): \(String(format: "%.1f", Date().timeIntervalSince(t0))) s")
+        let marker = "minimal@\(LiteEdition.version).\(LiteEdition.minimalVersion)"
+        try #require(await waitUntil(180) { (try? String(contentsOf: config.liteMarkerFile, encoding: .utf8)) == marker },
+                     "Minimal package list never applied")
+
+        let disabled = Set(try await session.adb.shell("pm list packages -d").split(whereSeparator: \.isNewline)
+            .map { $0.replacingOccurrences(of: "package:", with: "") })
+        let installed = Set(try await session.adb.shell("pm list packages").split(whereSeparator: \.isNewline)
+            .map { $0.replacingOccurrences(of: "package:", with: "") })
+        let expected = Set(LiteEdition.minimalPackages).intersection(installed)
+        log("minimal: \(expected.count) of \(LiteEdition.minimalPackages.count) listed packages present, \(expected.subtracting(disabled).count) still enabled")
+        #expect(expected.isSubset(of: disabled))
+        #expect(disabled.contains("com.google.android.gms"))
+        #expect(!disabled.contains("com.android.chrome"))
+        // VexIME is installed and selected right after the package list is applied.
+        var ime = ""
+        for _ in 0..<60 where ime != ImeBridge.component {
+            ime = try await session.adb.shell("settings get secure default_input_method").trimmingCharacters(in: .whitespacesAndNewlines)
+            if ime != ImeBridge.component { try? await Task.sleep(for: .seconds(1)) }
+        }
+        #expect(ime == ImeBridge.component)
+        let state = try await session.adb.shell("settings get global bluetooth_on; settings get secure location_mode; getprop ro.product.model")
+            .split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+        log("minimal state: ime \(ime) | \(state.joined(separator: " | "))")
+        #expect(Array(state.prefix(2)) == ["0", "0"])
+        if config.deviceProfile != nil { #expect(state.last == "SM-S928B") }
+        // A crash while the list is applied is acceptable only from an app that ends up disabled.
+        let crashed = try await session.adb.shell("logcat -d -b crash | grep -o -e 'Process: [^,]*' -e '>>> [^ ]*' | sed -e 's/Process: //' -e 's/>>> //' | sort -u; true")
+            .split(whereSeparator: \.isNewline).map(String.init)
+        log("minimal crashes during first boot: \(crashed.isEmpty ? "none" : crashed.joined(separator: ", "))")
+        #expect(crashed.allSatisfy { disabled.contains($0.components(separatedBy: ":")[0]) }, "a kept app crashed: \(crashed)")
+        _ = try await session.adb.shell("logcat -c -b crash; true")
+
+        // The next start (Quickboot) must come up the same way.
+        session.stop()
+        try #require(await waitUntil(180) { !session.state.isAlive }, "never stopped")
+        let t1 = Date()
+        session.start()
+        try #require(await waitUntil(600) { session.state == .running || !session.state.isAlive }, "never booted again")
+        try #require(session.state == .running, "state \(session.state.label)")
+        log("minimal second start: \(String(format: "%.1f", Date().timeIntervalSince(t1))) s")
+        try? await Task.sleep(for: .seconds(60))
+        let crashes = try await session.adb.shell("logcat -d -b crash | grep -e 'Process:' -e '>>> ' -e 'FATAL EXCEPTION' | head -20; true")
+        log("minimal crash buffer after restart: \(crashes.isEmpty ? "empty" : crashes)")
+        #expect(crashes.isEmpty)
+        let imeAfterRestart = try await session.adb.shell("settings get secure default_input_method").trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(imeAfterRestart == ImeBridge.component)
+        let mem = (try? await session.adb.shell("dumpsys meminfo | grep -E 'Used RAM|Free RAM'; true")) ?? ""
+        log("minimal meminfo: \(mem.replacingOccurrences(of: "\n", with: " | "))")
+    }
+
     /// Android 13 and 14 can't use guest ANGLE on MoltenVK: the Vulkan setting must fall back to OpenGL (see GPUMode.minGuestAngleAPI).
     /// Lite + device profile, like a real game instance; the instance is deleted afterwards.
     @Test func olderAndroidFallsBackToOpenGL() async throws {

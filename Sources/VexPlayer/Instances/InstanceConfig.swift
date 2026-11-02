@@ -32,6 +32,11 @@ enum GPUMode: String, Codable, CaseIterable, Identifiable, Sendable {
     static let minGuestAngleAPI = 35
 }
 
+/// The image as Google ships it, or with what a game doesn't need switched off (see LiteEdition).
+enum ImageEdition: String, CaseIterable, Sendable {
+    case full, lite, minimal
+}
+
 struct DisplayPreset: Identifiable, Hashable, Sendable {
     let id: String
     let title: String
@@ -70,9 +75,20 @@ struct InstanceConfig: Codable, Identifiable, Hashable, Sendable {
     var deviceProfile: String?
     /// Lite edition of the image (see LiteEdition). Chosen at creation, like the image itself.
     var lite: Bool?
+    /// Minimal edition: Lite plus no Google services (see LiteEdition.minimalPackages). `lite` is set too,
+    /// so older VexPlayer builds still treat the instance as Lite.
+    var minimal: Bool?
     var createdAt = Date()
 
     var isLite: Bool { lite == true }
+    var isMinimal: Bool { minimal == true }
+    var edition: ImageEdition {
+        get { isMinimal ? .minimal : isLite ? .lite : .full }
+        set {
+            lite = newValue == .full ? nil : true
+            minimal = newValue == .minimal ? true : nil
+        }
+    }
     var isLandscape: Bool { width > height }
 
     var imageDirRelative: String {
@@ -112,6 +128,20 @@ struct InstanceConfig: Codable, Identifiable, Hashable, Sendable {
     static var defaultRAM: Int { hostRAMMB >= 32_768 ? 8192 : hostRAMMB >= 16_384 ? 4096 : 3072 }
     /// After a Quickboot restore the whole guest RAM is resident on the Mac, so Lite's smaller Android pays off here.
     static var defaultLiteRAM: Int { hostRAMMB >= 32_768 ? 6144 : hostRAMMB >= 16_384 ? 3072 : 2048 }
+    /// Minimal Android (~1.1 GB) plus a game (~0.6-0.9 GB) fits in 2.5 GB; anything above fills with Linux page
+    /// cache, and the guest never hands RAM back to the Mac (the emulator's balloon can't free it on macOS).
+    static var defaultMinimalRAM: Int { hostRAMMB >= 32_768 ? 4096 : hostRAMMB >= 16_384 ? 2560 : 2048 }
+    static func defaultRAM(for edition: ImageEdition) -> Int {
+        switch edition {
+        case .full: return defaultRAM
+        case .lite: return defaultLiteRAM
+        case .minimal: return defaultMinimalRAM
+        }
+    }
+    /// "2.5" for 2560 MB and "3" for 3072 MB, in the user's number format.
+    static func gigabytes(_ mb: Int) -> String {
+        (Double(mb) / 1024).formatted(.number.precision(.fractionLength(0...1)))
+    }
 
     /// config.ini tuned for performance on Apple Silicon.
     func configIni() -> String {

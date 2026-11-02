@@ -3,9 +3,11 @@
 " · boot %.1f s" = " · загрузка %.1f с";
 " · root through adb" = " · root через adb";
 "%@ (copy)" = "%@ (копия)";
+"%@ GB" = "%@ ГБ";
 "%@ Lite" = "%@ Lite";
+"%@ Minimal" = "%@ Minimal";
 "%@ free" = "Свободно %@";
-"%@ · %@×%@ · %lld dpi · %lld cores · %lld GB" = "%@ · %@×%@ · %lld dpi · %lld ядер · %lld ГБ";
+"%@ · %@×%@ · %lld dpi · %lld cores · %@ GB" = "%@ · %@×%@ · %lld dpi · %lld ядер · %@ ГБ";
 "%lld GB" = "%lld ГБ";
 "120 Hz (ProMotion)" = "120 Гц (ProMotion)";
 "60 Hz" = "60 Гц";
@@ -135,6 +137,7 @@
 "Metal through Vulkan · GLES 3.1 (recommended)" = "Metal через Vulkan · GLES 3.1 (рекомендуется)";
 "Microphone" = "Микрофон";
 "Middle mouse button" = "Средняя кнопка мыши";
+"Minimal: Lite without Google Play services, Play Store, Gboard and the system apps a game and a browser don't need; Bluetooth, location and background scanning are off. Android uses about 0.3 GB less memory than Lite and the idle instance wakes the Mac less. Install games from the browser; apps that need Google services (Play Store, Google sign-in, push notifications) won't work. Anything can be turned back on in Android's Settings → Apps." = "Minimal — это Lite без сервисов Google Play, Play Маркета, Gboard и системных приложений, которые не нужны игре и браузеру; Bluetooth, геолокация и фоновый поиск сетей выключены. Android занимает примерно на 0,3 ГБ меньше памяти, чем в Lite, а в простое инстанс реже будит Mac. Игры устанавливайте через браузер; приложения, которым нужны сервисы Google (Play Маркет, вход через Google, push-уведомления), работать не будут. Всё отключённое можно включить обратно в настройках Android → Приложения.";
 "Minsk" = "Минск";
 "More" = "Ещё";
 "Moscow" = "Москва";

@@ -122,7 +122,7 @@ Where the speed comes from:
 | Feature | Status |
 |---|:---:|
 | Android 11–17, Google Play or Google APIs images | ✅ |
-| Lite edition of every image: no Google apps a game doesn't need, 1 GB less RAM | ✅ |
+| Lite edition of every image: no Google apps a game doesn't need, 1 GB less RAM; Minimal goes further, without Google Play services | ✅ |
 | Multi-instance: create, clone, wipe, delete, batch start, tile windows in a grid | ✅ |
 | Quickboot snapshots (~5 s start) | ✅ |
 | Hidden instances on efficiency cores, optional pause when minimized | ✅ |
@@ -161,7 +161,7 @@ open build/VexPlayer.app
 
 On first launch:
 
-1. Choose an Android version. *Google Play* images include the Play Store; *Google APIs* images have no Play Store but allow root and device model profiles. Every image can also be created as a *Lite* instance (see [Lite edition](#lite-edition)).
+1. Choose an Android version. *Google Play* images include the Play Store; *Google APIs* images have no Play Store but allow root and device model profiles. Every image can also be created as a *Lite* or *Minimal* instance (see [Lite edition](#lite-edition) and [Minimal edition](#minimal-edition)).
 2. Read and accept the Android SDK license. VexPlayer downloads about 2.3 GB from `dl.google.com`.
 3. Click the play button next to the new instance. The first boot takes around 40 seconds; after that, Quickboot brings it back in about 5.
 
@@ -233,7 +233,25 @@ Every installed image can be used as is or as its **Lite** edition, chosen when 
 | Default RAM of the instance (16 GB Mac) | 4 GB | **3 GB** |
 | Idle CPU | ~7 % | **~5 %** |
 
-The default RAM matters more than it looks: after a Quickboot restore the whole guest RAM is resident on the Mac, so a 3 GB Lite instance uses about 1 GB less of your Mac's memory than a 4 GB one. Nothing is uninstalled: any app can be turned back on in Android's Settings → Apps.
+The default RAM matters more than it looks: Android fills spare RAM with file cache and never hands memory back to the Mac (the emulator's balloon device can't free it on macOS), and after a Quickboot restore the whole guest RAM is resident. So a 3 GB Lite instance uses about 1 GB less of your Mac's memory than a 4 GB one.
+
+Activity Monitor shows an emulator at roughly twice its guest RAM (a 3 GB instance as ~6 GB). That is how macOS accounts for memory a Hypervisor.framework VM has mapped: the page-by-page total (`footprint <pid>`) is half of it, and idle guest memory is mostly compressed. Nothing is uninstalled: any app can be turned back on in Android's Settings → Apps.
+
+## Minimal edition
+
+**Minimal** goes further than Lite, for an instance that only needs to run a game and a browser. On top of everything Lite switches off, it disables Google Play services, the Play Store and Gboard, plus the system apps Android wakes at boot for features neither uses: work profile setup, IMS entitlement, the calendar provider, dynamic system updates, the backup transport, cell broadcasts, the print spooler, MMS, the live wallpaper picker, the storage manager and a few more. It also turns off Bluetooth, location, Wi-Fi and Bluetooth background scanning, the spell checker and backup; these are set only once, so you can turn them back on in Android's settings. VexIME takes Gboard's place as the keyboard.
+
+Chrome and WebView, the package installer and Files stay, so games are installed from the browser as APKs. Apps that need Google services (the Play Store, Google sign-in, push notifications) won't work. Minimal is offered for Android 16 and newer: the Chrome in older images never gets past its first-run screen without Google Play services.
+
+Measured on Android 16 Google APIs, idle, on the same Mac (Apple M5, 16 GB):
+
+| | Lite | Minimal |
+|---|---:|---:|
+| Memory used by Android itself | 1.37 GB | **1.05 GB** |
+| Emulator CPU (share of one Mac core) | 7.6 % | **5.7 %** |
+| CPU used inside Android | 1.5 % | **1.1 %** |
+
+Minimal instances get 2.5 GB of RAM by default on a 16 GB Mac: Android needs about 1.1 GB and a game typically 0.6–0.9 GB. Like Lite, Minimal is chosen when you create an instance: each image is offered as itself, as "… Lite" and as "… Minimal". It is never applied to an existing instance, and nothing is uninstalled: Android's Settings → Apps brings any app back.
 
 ## Device profiles
 

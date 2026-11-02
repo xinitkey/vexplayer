@@ -209,6 +209,35 @@ import Testing
         #expect(InstanceConfig.defaultLiteRAM < InstanceConfig.defaultRAM)
     }
 
+    @Test func minimalEditionIsLiteToo() throws {
+        var c = InstanceConfig(id: "vex_0", name: "Game", imagePath: "system-images;android-36;google_apis;arm64-v8a")
+        #expect(c.edition == .full)
+        c.edition = .minimal
+        let minimal = try JSONDecoder().decode(InstanceConfig.self, from: JSONEncoder().encode(c))
+        #expect(minimal.edition == .minimal && minimal.isLite)
+        // A build without Minimal reads only `lite`, so it still applies the Lite list.
+        let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(c)) as! [String: Any]
+        #expect(json["lite"] as? Bool == true)
+        c.edition = .lite
+        #expect(c.edition == .lite && c.minimal == nil)
+        c.edition = .full
+        #expect(c.lite == nil && c.minimal == nil)
+
+        #expect(InstanceConfig.defaultMinimalRAM <= InstanceConfig.defaultLiteRAM)
+        #expect(InstanceConfig.defaultRAM(for: .minimal) == InstanceConfig.defaultMinimalRAM)
+        #expect(InstanceConfig.gigabytes(3072) == "3")
+        #expect(["2.5", "2,5"].contains(InstanceConfig.gigabytes(2560)))
+
+        let minimalList = Set(LiteEdition.minimalPackages)
+        #expect(minimalList.isSuperset(of: LiteEdition.disabledPackages))
+        #expect(minimalList.count == LiteEdition.minimalPackages.count, "duplicate package")
+        // What a game and a browser need stays.
+        for kept in ["com.android.chrome", "com.google.android.webview", "com.google.android.packageinstaller",
+                     "com.google.android.documentsui", "com.android.providers.downloads", ImeBridge.package] {
+            #expect(!minimalList.contains(kept), "\(kept)")
+        }
+    }
+
     @Test func configIniHasPerformanceKeys() {
         let c = InstanceConfig(id: "vex_0", name: "Test", imagePath: "system-images;android-36;google_apis_playstore;arm64-v8a",
                                cpuCores: 4, ramMB: 4096, width: 1920, height: 1080, dpi: 280)
