@@ -16,6 +16,15 @@ final class AppSettings {
     var hiddenQtWindow: Bool { didSet { defaults.set(hiddenQtWindow, forKey: "hiddenQtWindow") } }
     var flipFrames: Bool { didSet { defaults.set(flipFrames, forKey: "flipFrames") } }
     var stopOnWindowClose: Bool { didSet { defaults.set(stopOnWindowClose, forKey: "stopOnWindowClose") } }
+    /// Minimized, covered or closed instances run at background priority (efficiency cores, below the user's apps).
+    var backgroundWhenHidden: Bool {
+        didSet {
+            defaults.set(backgroundWhenHidden, forKey: "backgroundWhenHidden")
+            NotificationCenter.default.post(name: .vexBackgroundPolicyChanged, object: nil)
+        }
+    }
+    /// Freeze the VM of a minimized window: 0 % CPU. Off by default, online games may drop the connection.
+    var pauseWhenMinimized: Bool { didSet { defaults.set(pauseWhenMinimized, forKey: "pauseWhenMinimized") } }
     /// Type through VexIME: text follows the Mac's current input source (Russian, CJK, emoji…).
     var macInputMethod: Bool { didSet { defaults.set(macInputMethod, forKey: "macInputMethod") } }
     var extraEmulatorArgs: String { didSet { defaults.set(extraEmulatorArgs, forKey: "extraEmulatorArgs") } }
@@ -24,7 +33,7 @@ final class AppSettings {
         defaults.register(defaults: [
             "vsync": true, "showFPS": true, "clipboardSync": true, "invertWheel": false,
             "hiddenQtWindow": false, "flipFrames": false, "stopOnWindowClose": true, "extraEmulatorArgs": "",
-            "macInputMethod": true,
+            "macInputMethod": true, "backgroundWhenHidden": true, "pauseWhenMinimized": false,
         ])
         vsync = defaults.bool(forKey: "vsync")
         showFPS = defaults.bool(forKey: "showFPS")
@@ -33,7 +42,13 @@ final class AppSettings {
         hiddenQtWindow = defaults.bool(forKey: "hiddenQtWindow")
         flipFrames = defaults.bool(forKey: "flipFrames")
         stopOnWindowClose = defaults.bool(forKey: "stopOnWindowClose")
+        backgroundWhenHidden = defaults.bool(forKey: "backgroundWhenHidden")
+        pauseWhenMinimized = defaults.bool(forKey: "pauseWhenMinimized")
         macInputMethod = defaults.bool(forKey: "macInputMethod")
         extraEmulatorArgs = defaults.string(forKey: "extraEmulatorArgs") ?? ""
     }
+}
+
+extension Notification.Name {
+    static let vexBackgroundPolicyChanged = Notification.Name("vexBackgroundPolicyChanged")
 }

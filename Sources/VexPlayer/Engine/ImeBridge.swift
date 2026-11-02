@@ -8,7 +8,7 @@ final class ImeBridge: @unchecked Sendable {
     static let component = "app.vexplayer.ime/.VexIME"
     static let socketName = "vexplayer_ime"
     /// Must match android:versionCode in android/vexime/AndroidManifest.xml.
-    static let version = 1
+    static let version = 2
 
     var onFocus: (@Sendable (Bool) -> Void)?
     var onConnection: (@Sendable (Bool) -> Void)?
@@ -44,10 +44,14 @@ final class ImeBridge: @unchecked Sendable {
 
     func commit(_ text: String) { send(UInt8(ascii: "C"), text) }
     func compose(_ text: String) { send(UInt8(ascii: "M"), text) }
+    /// See SensorReset.java: brings the emulator's sensor stream back to 1 Hz.
+    func resetSensorRate() { send(UInt8(ascii: "S"), "") }
 
     private var isRunning: Bool { lock.withLock { running } }
 
     private func run(port: Int) {
+        // Each attempt is a round trip through adb into Android; back off while the IME isn't there.
+        var retryDelay: TimeInterval = 1
         while isRunning {
             let s = socket(AF_INET, SOCK_STREAM, 0)
             guard s >= 0 else { Thread.sleep(forTimeInterval: 1); continue }
@@ -63,7 +67,8 @@ final class ImeBridge: @unchecked Sendable {
             } == 0
             if !ok {
                 close(s)
-                Thread.sleep(forTimeInterval: 1)
+                Thread.sleep(forTimeInterval: retryDelay)
+                retryDelay = min(retryDelay * 2, 15)
                 continue
             }
             lock.withLock { fd = s }
@@ -73,6 +78,7 @@ final class ImeBridge: @unchecked Sendable {
                 switch type {
                 case UInt8(ascii: "H"):
                     greeted = true
+                    retryDelay = 1
                     onConnection?(true)
                 case UInt8(ascii: "F"):
                     onFocus?(payload.hasPrefix("1"))
@@ -83,7 +89,10 @@ final class ImeBridge: @unchecked Sendable {
             lock.withLock { fd = -1 }
             close(s)
             if greeted { onConnection?(false) }
-            if isRunning { Thread.sleep(forTimeInterval: 1) }
+            if isRunning {
+                Thread.sleep(forTimeInterval: retryDelay)
+                if !greeted { retryDelay = min(retryDelay * 2, 15) }
+            }
         }
     }
 

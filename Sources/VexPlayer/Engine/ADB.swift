@@ -17,6 +17,31 @@ struct ADB: Sendable {
         try await run(["shell", command])
     }
 
+    /// `adb shell <command>` as a stream of output lines. Ends when adb exits; cancelling the consumer kills adb.
+    func shellLines(_ command: String) -> AsyncStream<String> {
+        let serial = serial
+        return AsyncStream { continuation in
+            let p = Process()
+            p.executableURL = AppPaths.adbBinary
+            p.arguments = ["-s", serial, "shell", command]
+            p.environment = AppPaths.sdkEnvironment()
+            let pipe = Pipe()
+            p.standardOutput = pipe
+            p.standardError = FileHandle.nullDevice
+            let reader = Task.detached {
+                do {
+                    for try await line in pipe.fileHandleForReading.bytes.lines { continuation.yield(line) }
+                } catch {}
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                reader.cancel()
+                if p.isRunning { p.terminate() }
+            }
+            do { try p.run() } catch { continuation.finish() }
+        }
+    }
+
     func waitForDevice() async throws {
         try await run(["wait-for-device"])
     }
@@ -86,6 +111,37 @@ struct ADB: Sendable {
             package = String(out[r]).split(separator: " ").last.map { String($0.dropLast()) }
         }
         return (rotation, package)
+    }
+
+    func rotation() async -> Int? {
+        guard let out = try? await shell("dumpsys display 2>/dev/null | grep -m1 -oE 'mCurrentOrientation=[0-9]'; true"),
+              let r = out.range(of: #"mCurrentOrientation=\d"#, options: .regularExpression) else { return nil }
+        return Int(String(out[r].last!))
+    }
+
+    /// Android's event log announces app switches and configuration (rotation) changes as they happen.
+    static let displayEventsCommand = "logcat -b events -v brief -T 1 -s " +
+        "wm_set_resumed_activity:I am_set_resumed_activity:I configuration_changed:I"
+
+    /// `I/wm_set_resumed_activity(  639): [0,com.example.game/.MainActivity,reason]` → `com.example.game`.
+    static func resumedPackage(in line: String) -> String? {
+        guard line.contains("_set_resumed_activity"),
+              let r = line.range(of: #"\[\d+,[A-Za-z0-9_.]+/"#, options: .regularExpression) else { return nil }
+        return String(line[r].dropFirst().drop { $0 != "," }.dropFirst().dropLast())
+    }
+
+    /// Turns off the two system_server features that keep the accelerometer streaming on an idle screen:
+    /// flip-to-screen-off (FaceDownDetector) and the rotate suggestion button. Google Play services re-syncs
+    /// DeviceConfig from its servers, so syncing is paused until the next reboot (we re-apply on every boot).
+    func quietSensors() async {
+        _ = try? await shell("device_config set_sync_disabled_for_tests until_reboot; " +
+                             "device_config put attention_manager_service enable_flip_to_screen_off false; " +
+                             "settings put secure show_rotation_suggestions 0; true")
+    }
+
+    /// Drops the emulator's sensor stream back to 1 Hz through VexIME's receiver (see SensorReset.java).
+    func resetSensorRate() async {
+        _ = try? await shell("am broadcast -f 32 -n \(ImeBridge.package)/.SensorResetReceiver >/dev/null 2>&1; true")
     }
 
     static func startServer() async {

@@ -16,6 +16,12 @@ struct AppSettingsView: View {
             }
             Section("Окна") {
                 Toggle("Останавливать инстанс при закрытии окна", isOn: $settings.stopOnWindowClose)
+                Toggle("Скрытые окна в фоновом режиме", isOn: $settings.backgroundWhenHidden)
+                Text("Свёрнутый или закрытый инстанс продолжает работать на энергоэффективных ядрах и не мешает другим программам.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle("Ставить на паузу свёрнутые инстансы", isOn: $settings.pauseWhenMinimized)
+                Text("Android в свёрнутом окне замирает и совсем не тратит процессор, а при разворачивании продолжает с того же места. Онлайн-игры за время паузы могут отключиться от сервера.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("Движок (для опытных)") {
                 Toggle("Qt-сборка со скрытым окном вместо headless", isOn: $settings.hiddenQtWindow)
@@ -32,6 +38,6 @@ struct AppSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 520, height: 520)
+        .frame(width: 520, height: 640)
     }
 }

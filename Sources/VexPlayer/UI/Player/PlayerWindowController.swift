@@ -189,6 +189,9 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         session.setDisplayVisible(window.occlusionState.contains(.visible))
     }
 
+    func windowDidMiniaturize(_ notification: Notification) { session.setMinimized(true) }
+    func windowDidDeminiaturize(_ notification: Notification) { session.setMinimized(false) }
+
     func windowWillEnterFullScreen(_ notification: Notification) { ui.isFullScreen = true }
     func windowDidExitFullScreen(_ notification: Notification) { ui.isFullScreen = false }
 

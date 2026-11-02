@@ -165,6 +165,22 @@ import Testing
     }
 }
 
+@Suite struct DisplayEventTests {
+    @Test func resumedActivityGivesThePackage() {
+        let full = "I/wm_set_resumed_activity(  639): [0,com.android.chrome/org.chromium.chrome.browser.ChromeTabbedActivity,realStartActivityLocked - onActivityStateChanged]"
+        #expect(ADB.resumedPackage(in: full) == "com.android.chrome")
+        let short = "I/wm_set_resumed_activity(  639): [0,com.google.android.apps.nexuslauncher/.NexusLauncherActivity,resumeTopActivity]"
+        #expect(ADB.resumedPackage(in: short) == "com.google.android.apps.nexuslauncher")
+        // Android 10 named the event am_set_resumed_activity.
+        #expect(ADB.resumedPackage(in: "I/am_set_resumed_activity( 512): [0,com.example.game/.Main,resume]") == "com.example.game")
+    }
+
+    @Test func otherEventsAreIgnored() {
+        #expect(ADB.resumedPackage(in: "I/configuration_changed(  639): 536872064") == nil)
+        #expect(ADB.resumedPackage(in: "--------- beginning of events") == nil)
+    }
+}
+
 @Suite struct EvdevTests {
     @Test func everyLetterAndTheZeroCodeKeyMap() {
         #expect(EvdevKeys.code(forMac: 0x00) == 30)   // A: key code 0 used to be dropped as "unset"

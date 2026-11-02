@@ -24,12 +24,14 @@ import java.util.concurrent.Executors;
  *
  * Wire format on the abstract socket "vexplayer_ime", both directions:
  * [type: u8][length: u32 big-endian][UTF-8 payload].
- * Host → IME: 'C' commit text, 'M' set composing text (empty clears it).
+ * Host → IME: 'C' commit text, 'M' set composing text (empty clears it), 'S' reset the sensor rate.
  * IME → host: 'H' hello (protocol version), 'F' focus ("1|inputType" or "0").
  */
 public class VexIME extends InputMethodService {
     private static final String SOCKET = "vexplayer_ime";
-    private static final String PROTOCOL = "1";
+    private static final String PROTOCOL = "2";
+    /** Background services sometimes leave the emulator's sensor stream fast; see SensorReset. */
+    private static final long SENSOR_RESET_INTERVAL_MS = 60_000;
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService writer = Executors.newSingleThreadExecutor();
@@ -37,17 +39,27 @@ public class VexIME extends InputMethodService {
     private volatile boolean running = true;
     private volatile String focus = "0";
 
+    private final Runnable sensorReset = new Runnable() {
+        @Override
+        public void run() {
+            SensorReset.run(VexIME.this);
+            main.postDelayed(this, SENSOR_RESET_INTERVAL_MS);
+        }
+    };
+
     @Override
     public void onCreate() {
         super.onCreate();
         Thread server = new Thread(this::serve, "vexime-server");
         server.setDaemon(true);
         server.start();
+        main.post(sensorReset);
     }
 
     @Override
     public void onDestroy() {
         running = false;
+        main.removeCallbacks(sensorReset);
         writer.shutdownNow();
         super.onDestroy();
     }
@@ -117,6 +129,10 @@ public class VexIME extends InputMethodService {
     }
 
     private void apply(int type, String text) {
+        if (type == 'S') {
+            SensorReset.run(this);
+            return;
+        }
         InputConnection ic = getCurrentInputConnection();
         if (ic == null) return;
         switch (type) {

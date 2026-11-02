@@ -102,13 +102,16 @@ Measured on a MacBook with an Apple M5 and 16 GB of RAM, running Android 16:
 | Launcher scrolling, median frame time | **7 ms** | 17 ms |
 | GPU time per frame, 90th percentile | **2 ms** | 21 ms |
 | Janky frames | **2.7 %** | 10.9 % |
-| Idle CPU usage, one instance | ~25 % | — |
+| Idle CPU, one instance on the home screen | **~7 %** of one core | — |
+| Idle CPU, minimized with pause enabled | **< 0.5 %** | — |
 
 Where the speed comes from:
 
 - **ANGLE on Vulkan instead of the legacy OpenGL path.** The emulator's default macOS renderer sits on Apple's deprecated OpenGL 4.1 and gives Android GLES 3.0 only. VexPlayer turns on `GuestAngle`, so Android gets GLES 3.1 and rendering is about 2.5× faster.
 - **Zero-copy frames.** The emulator writes each frame into shared memory, and a Metal texture points straight at those pages (`makeBuffer(bytesNoCopy:)`). Nothing is copied on the way to the screen.
-- **No work for hidden windows.** When a player window is minimized or fully covered, frame streaming stops and the emulator stops reading frames back from the GPU. This matters when several instances run in the background.
+- **A quiet idle.** The emulator's sensor HAL switches every virtual sensor on at boot and never off; once any app has read one at 50 Hz, the emulator keeps streaming all of them at 50 Hz with nobody listening. VexPlayer turns off the two system features that hold the accelerometer on an idle screen (flip-to-screen-off and the rotate suggestion button), and VexIME drops the stream back to 1 Hz after an app switch and once a minute. Idle CPU goes from ~25 % to ~7 %.
+- **Events, not polling.** Rotation and the foreground app come from Android's event log the moment they change. Earlier builds asked `dumpsys` every 700 ms, which kept Android's system server busy around the clock.
+- **No work for hidden windows.** When a player window is minimized or fully covered, frame streaming stops, the emulator stops reading frames back from the GPU, and it drops to background priority: macOS runs it on the efficiency cores and gives your other apps the performance cores first. Optionally, a minimized instance can be paused completely and resumes exactly where it was.
 - **One input stream.** Touches and keys travel over a single long-lived gRPC stream instead of one RPC per event.
 - **Performance cores by default.** The default vCPU count equals the number of P-cores, so the game thread never lands on an efficiency core.
 - **Headless emulator.** No Qt window, no boot animation, no metrics, no virtual cameras. App Nap is disabled while an instance is running.
@@ -121,6 +124,7 @@ Where the speed comes from:
 | Android 11–17, Google Play or Google APIs images | ✅ |
 | Multi-instance: create, clone, wipe, delete, batch start, tile windows in a grid | ✅ |
 | Quickboot snapshots (~5 s start) | ✅ |
+| Hidden instances on efficiency cores, optional pause when minimized | ✅ |
 | Key mapping: tap, auto-tap, joystick, mouse look with cursor lock, fire, swipe, skill | ✅ |
 | Per-game profiles (picked by the foreground app) with several schemes each | ✅ |
 | Create, duplicate, rename, delete, export and import schemes | ✅ |
@@ -260,7 +264,7 @@ flowchart LR
 | Input | `Sources/VexPlayer/Input` | Key mapping, evdev key codes, gamepads, macros, synchronizer |
 | UI | `Sources/VexPlayer/UI` | Launcher, player window, key mapping editor, settings |
 | gRPC API | `Sources/EmulatorAPI` | Code generated from `Protos/emulator_controller.proto` |
-| VexIME | `android/vexime` | The Android input method (plain Java, no Gradle) |
+| VexIME | `android/vexime` | The Android input method and sensor-rate reset (plain Java, no Gradle) |
 
 ## Development
 

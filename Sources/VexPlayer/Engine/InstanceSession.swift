@@ -89,6 +89,11 @@ final class InstanceSession: Identifiable {
     /// Frames are only pulled while someone looks at them (or records): a hidden window costs no GPU readback.
     @ObservationIgnored private var frameTask: Task<Void, Never>?
     @ObservationIgnored private var displayVisible = true
+    @ObservationIgnored private var sensorResetTask: Task<Void, Never>?
+    @ObservationIgnored private var runsInBackground = false
+    @ObservationIgnored private var vmPaused = false
+    @ObservationIgnored private var pauseTask: Task<Void, Never>?
+    @ObservationIgnored private var policyObserver: NSObjectProtocol?
 
     var serial: String { "emulator-\(consolePort)" }
     var adb: ADB { ADB(serial: serial) }
@@ -103,6 +108,10 @@ final class InstanceSession: Identifiable {
         input = InputController(session: self, keymap: keymap)
         input.engine.aspect = geometry.aspect
         input.engine.onAimLockChanged = { [weak self] locked in self?.aimLocked = locked }
+        policyObserver = NotificationCenter.default.addObserver(
+            forName: .vexBackgroundPolicyChanged, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateProcessPriority() }
+        }
     }
 
     // MARK: Lifecycle
@@ -168,6 +177,8 @@ final class InstanceSession: Identifiable {
             return fail("Не удалось запустить эмулятор: \(error.localizedDescription)")
         }
         process = p
+        runsInBackground = false
+        updateProcessPriority()
         activity = ProcessInfo.processInfo.beginActivity(
             options: [.userInitiated, .latencyCritical], reason: "Android instance \(config.name)")
         tasks.append(Task { await self.connectAndBoot(pid: p.processIdentifier) })
@@ -216,7 +227,17 @@ final class InstanceSession: Identifiable {
         state = .stopping
         input.releaseAll()
         stopVideoRecording()
-        p.interrupt()
+        pauseTask?.cancel()
+        if vmPaused, let client {
+            // Quickboot saves a running VM; wake it first.
+            vmPaused = false
+            Task {
+                try? await client.setVMState(.running)
+                p.interrupt()
+            }
+        } else {
+            p.interrupt()
+        }
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(45))
             if p.isRunning { p.terminate() }
@@ -244,6 +265,11 @@ final class InstanceSession: Identifiable {
         frameTask = nil
         tasks.forEach { $0.cancel() }
         tasks.removeAll()
+        sensorResetTask?.cancel()
+        sensorResetTask = nil
+        pauseTask?.cancel()
+        pauseTask = nil
+        vmPaused = false
         client?.close()
         client = nil
         frameBuffer = nil
@@ -311,8 +337,8 @@ final class InstanceSession: Identifiable {
         if config.rootOnBoot, image?.supportsRoot ?? false {
             try? await adb.root()
         }
-        tasks.append(Task { await self.pollDisplayState() })
-        if AppSettings.shared.macInputMethod { tasks.append(Task { await self.setupIME() }) }
+        tasks.append(Task { await self.watchDisplayState() })
+        tasks.append(Task { await self.setupAgent() })
     }
 
     private func discoverToken(pid: Int32) async -> String? {
@@ -372,8 +398,11 @@ final class InstanceSession: Identifiable {
         updateFrameStreaming()
     }
 
+    /// Someone sees the screen or records it.
+    private var isWatched: Bool { isRecordingVideo || (frameSink.renderer != nil && displayVisible) }
+
     private func updateFrameStreaming() {
-        let wanted = client != nil && state.isAlive && (isRecordingVideo || (frameSink.renderer != nil && displayVisible))
+        let wanted = client != nil && state.isAlive && isWatched
         if wanted, frameTask == nil, let client {
             frameTask = Task { await self.runFrameStream(client) }
         } else if !wanted, let task = frameTask {
@@ -381,6 +410,38 @@ final class InstanceSession: Identifiable {
             frameTask = nil
             if frameSink.renderer == nil { fps = 0 }
         }
+        updateProcessPriority()
+    }
+
+    /// With "pause minimized instances" on, minimizing the window freezes the VM (0 % CPU); restoring resumes it.
+    func setMinimized(_ minimized: Bool) {
+        pauseTask?.cancel()
+        pauseTask = Task {
+            if minimized {
+                // A quick minimize-and-restore shouldn't stall the game.
+                try? await Task.sleep(for: .seconds(5))
+                guard !Task.isCancelled, AppSettings.shared.pauseWhenMinimized, state == .running,
+                      !isRecordingVideo, !recorder.isPlaying, !vmPaused, let client else { return }
+                vmPaused = true
+                try? await client.setVMState(.paused)
+                appendLog("VM paused (window minimized)\n")
+            } else if vmPaused, let client {
+                vmPaused = false
+                try? await client.setVMState(.running)
+                appendLog("VM resumed\n")
+            }
+        }
+    }
+
+    /// An instance nobody looks at keeps running, but at background priority: macOS moves it to the
+    /// efficiency cores and gives the user's own apps the performance cores first.
+    private func updateProcessPriority() {
+        guard let p = process, p.isRunning else { return }
+        let background = AppSettings.shared.backgroundWhenHidden && !isWatched
+        guard background != runsInBackground else { return }
+        runsInBackground = background
+        setpriority(PRIO_DARWIN_PROCESS, id_t(p.processIdentifier), background ? PRIO_DARWIN_BG : 0)
+        appendLog("Priority: \(background ? "background" : "normal")\n")
     }
 
     private func runNotifications(_ client: EmulatorClient) async {
@@ -477,10 +538,10 @@ final class InstanceSession: Identifiable {
         throw NSError(domain: "VexPlayer", code: 5, userInfo: [NSLocalizedDescriptionKey: "Android не загрузился после перезагрузки"])
     }
 
-    // MARK: Input method
+    // MARK: Android agent (VexIME)
 
-    /// Installs VexIME if needed, makes it the active IME and connects to it.
-    private func setupIME() async {
+    /// Quiets the idle sensors, installs VexIME if needed and, with Mac text input on, makes it the active IME.
+    private func setupAgent() async {
         guard let apk = ImeBridge.apkURL else { return appendLog("VexIME.apk not found\n") }
         // After a Quickboot restore Android reports "booted" while adbd is still reconnecting ("device offline").
         var online = false
@@ -489,6 +550,19 @@ final class InstanceSession: Identifiable {
             try? await Task.sleep(for: .seconds(1))
         }
         guard online else { return appendLog("VexIME: adb never came online\n") }
+        await adb.quietSensors()
+        await installAgent(apk)
+        if AppSettings.shared.macInputMethod { await connectIME() }
+        await adb.resetSensorRate()
+
+        // Without the IME nothing inside Android resets the sensor rate on its own (VexIME does every minute).
+        while !Task.isCancelled && state == .running {
+            try? await Task.sleep(for: .seconds(120))
+            if !imeConnected && state == .running { await adb.resetSensorRate() }
+        }
+    }
+
+    private func installAgent(_ apk: URL) async {
         let info = (try? await adb.shell("dumpsys package \(ImeBridge.package) | grep -m1 versionCode")) ?? ""
         let installedVersion = info.range(of: #"versionCode=\d+"#, options: .regularExpression)
             .flatMap { Int(info[$0].dropFirst("versionCode=".count)) }
@@ -505,6 +579,9 @@ final class InstanceSession: Identifiable {
                 return appendLog("VexIME install failed: \(error.localizedDescription)\n")
             }
         }
+    }
+
+    private func connectIME() async {
         _ = try? await adb.shell("ime enable \(ImeBridge.component); ime set \(ImeBridge.component)")
         guard let port = try? PortAllocator.freePort(in: 27183...27383) else { return }
         do {
@@ -565,24 +642,46 @@ final class InstanceSession: Identifiable {
 
     // MARK: Rotation & foreground app
 
-    private func pollDisplayState() async {
+    /// Rotation and the foreground app come from Android's event log as they change. A waiting `logcat`
+    /// costs nothing; polling `dumpsys` kept system_server and adb busy around the clock.
+    private func watchDisplayState() async {
         while !Task.isCancelled && state == .running {
             let (rotation, package) = await adb.displayState()
-            if let rotation {
-                // Surface.ROTATION_90 means the UI is drawn turned clockwise inside the panel.
-                let turns = (4 - rotation) % 4
-                if turns != geometry.rotation {
-                    geometry.rotation = turns
-                    input.engine.aspect = geometry.aspect
-                    input.releaseAll()
-                    frameSink.renderer?.rotation = turns
+            if let rotation { applyRotation(rotation) }
+            if let package { foregroundChanged(package) }
+            for await line in adb.shellLines(ADB.displayEventsCommand) {
+                if line.contains("configuration_changed") {
+                    if let rotation = await adb.rotation() { applyRotation(rotation) }
+                } else if let package = ADB.resumedPackage(in: line) {
+                    foregroundChanged(package)
                 }
             }
-            if let package, package != foregroundPackage {
-                foregroundPackage = package
-                loadKeymap()
-            }
-            try? await Task.sleep(for: .milliseconds(700))
+            // adb dropped (Android reboot, Quickboot restore): reconnect and resync.
+            try? await Task.sleep(for: .seconds(2))
+        }
+    }
+
+    private func applyRotation(_ rotation: Int) {
+        // Surface.ROTATION_90 means the UI is drawn turned clockwise inside the panel.
+        let turns = (4 - rotation) % 4
+        guard turns != geometry.rotation else { return }
+        geometry.rotation = turns
+        input.engine.aspect = geometry.aspect
+        input.releaseAll()
+        frameSink.renderer?.rotation = turns
+    }
+
+    private func foregroundChanged(_ package: String) {
+        guard package != foregroundPackage else { return }
+        foregroundPackage = package
+        loadKeymap()
+        // A game that read sensors at 50+ Hz leaves the emulator streaming them after it closes.
+        // Give the old app a moment to unregister its listeners first.
+        sensorResetTask?.cancel()
+        sensorResetTask = Task {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled, state == .running else { return }
+            if imeConnected { ime.resetSensorRate() } else { await adb.resetSensorRate() }
         }
     }
 
