@@ -1,0 +1,18 @@
+VexPlayer
+Copyright 2026 VexPlayer contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+It includes or builds on the following third-party work:
+
+- Protos/emulator_controller.proto and the code generated from it in
+  Sources/EmulatorAPI: Android Emulator gRPC API,
+  Copyright The Android Open Source Project, Apache License 2.0.
+- grpc-swift, grpc-swift-nio-transport, grpc-swift-protobuf
+  (https://github.com/grpc), Apache License 2.0.
+- swift-protobuf (https://github.com/apple/swift-protobuf), Apache License 2.0.
+- SwiftNIO and related Apple Swift packages, Apache License 2.0.
+
+Not included in this repository: the Android Emulator, Android platform-tools
+and Android system images. VexPlayer downloads them from Google
+(dl.google.com) at runtime, after the user accepts the Android SDK license.
