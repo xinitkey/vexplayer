@@ -223,6 +223,23 @@ import Testing
         #expect(c.gpuMode == .angleVulkan)
         #expect(c.gpuMode.features == ["GuestAngle", "VulkanSnapshots", "-HostComposition", "-VulkanQueueSubmitWithCommands"])
         #expect(c.avdIniContents().contains("target=android-36"))
+        #expect(c.apiLevel == 36 && c.effectiveGPUMode == .angleVulkan)
+    }
+
+    @Test func oldImagesFallBackToOpenGL() {
+        func config(_ platform: String, _ mode: GPUMode = .angleVulkan) -> InstanceConfig {
+            var c = InstanceConfig(id: "vex_0", name: "Test", imagePath: "system-images;\(platform);google_apis;arm64-v8a")
+            c.gpuMode = mode
+            return c
+        }
+        #expect(config("android-33").apiLevel == 33)
+        #expect(config("android-36.1").apiLevel == 36)
+        #expect(config("android-33").effectiveGPUMode == .host)
+        #expect(config("android-30").effectiveGPUMode == .host)
+        #expect(config("android-34").effectiveGPUMode == .host)
+        #expect(config("android-33", .swiftshader).effectiveGPUMode == .swiftshader)
+        #expect(config("android-\(GPUMode.minGuestAngleAPI)").effectiveGPUMode == .angleVulkan)
+        #expect(config("android-37").effectiveGPUMode == .angleVulkan)
     }
 
     @Test func revisionsCompareNumerically() {

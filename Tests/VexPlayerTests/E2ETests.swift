@@ -68,8 +68,8 @@ struct E2ETests {
         log("orientation match at rotation 0: \(match0)")
         let gles = try await session.adb.shell("getprop ro.opengles.version").trimmingCharacters(in: .whitespacesAndNewlines)
         let egl = try await session.adb.shell("getprop ro.hardware.egl").trimmingCharacters(in: .whitespacesAndNewlines)
-        log("gpu mode \(config.gpuMode.rawValue): ro.opengles.version=\(gles) egl=\(egl)")
-        if config.gpuMode == .angleVulkan { #expect(gles == "196609" && egl == "angle") }
+        log("gpu mode \(config.effectiveGPUMode.rawValue): ro.opengles.version=\(gles) egl=\(egl)")
+        if config.effectiveGPUMode == .angleVulkan { #expect(gles == "196609" && egl == "angle") }
         #expect(match0.rotation == 0 && !match0.flipped && match0.error < 20)
 
         // 3. A real tap through our input path opens an app.
@@ -196,6 +196,43 @@ struct E2ETests {
         var failure: Error?
         do {
             try await checkLite(session, config)
+        } catch {
+            failure = error
+        }
+        dumpLog(session)
+        session.forceStop()
+        _ = await waitUntil(60) { !session.state.isAlive }
+        try store.delete(config.id)
+        if let failure { throw failure }
+    }
+
+    /// Android 13 and 14 can't use guest ANGLE on MoltenVK: the Vulkan setting must fall back to OpenGL (see GPUMode.minGuestAngleAPI).
+    /// Lite + device profile, like a real game instance; the instance is deleted afterwards.
+    @Test func olderAndroidFallsBackToOpenGL() async throws {
+        let path = "system-images;android-33;google_apis;arm64-v8a"
+        try #require(SDKManager.shared.installedImages.contains { $0.path == path }, "Android 13 image not installed")
+        let store = InstanceStore.shared
+        var config = InstanceConfig(id: store.nextID(), name: "E2E-13", imagePath: path)
+        config.lite = true
+        config.deviceProfile = "galaxy_s24_ultra"
+        config = try store.create(config)
+        #expect(config.gpuMode == .angleVulkan && config.effectiveGPUMode == .host)
+        let session = store.session(for: config)
+        var failure: Error?
+        do {
+            let t0 = Date()
+            session.start()
+            try #require(await waitUntil(900) { session.state == .running || !session.state.isAlive }, "never booted")
+            try #require(session.state == .running, "state \(session.state.label)")
+            log("android 13 boot (incl. profile + reboots): \(String(format: "%.1f", Date().timeIntervalSince(t0))) s")
+            let props = try await session.adb.shell("getprop ro.hardware.egl; getprop ro.opengles.version; getprop ro.product.model; logcat -d -b crash | grep -c 'Abort message'; true")
+            log("android 13 props: \(props.replacingOccurrences(of: "\n", with: " | "))")
+            let lines = props.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+            #expect(lines.first == "emulation")
+            #expect(lines.contains("SM-S928B"))
+            #expect(lines.last == "0")
+            try #require(await waitUntil(180) { (try? String(contentsOf: config.liteMarkerFile, encoding: .utf8)) == "lite@\(LiteEdition.version)" },
+                         "Lite package list never applied")
         } catch {
             failure = error
         }

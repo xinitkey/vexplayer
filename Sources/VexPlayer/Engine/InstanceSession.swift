@@ -186,7 +186,7 @@ final class InstanceSession: Identifiable {
 
     private var launchSignatureFile: URL { config.avdDir.appendingPathComponent("vex-launch.txt") }
     private var launchSignature: String {
-        "\(config.gpuMode.rawValue)|\(config.gpuMode.features.joined(separator: ","))|\(AppSettings.shared.hiddenQtWindow)"
+        "\(config.effectiveGPUMode.rawValue)|\(config.effectiveGPUMode.features.joined(separator: ","))|\(AppSettings.shared.hiddenQtWindow)"
     }
 
     private func launchArguments() -> [String] {
@@ -195,14 +195,14 @@ final class InstanceSession: Identifiable {
             "-avd", config.id,
             "-port", "\(consolePort)",
             "-grpc", "\(grpcPort)", "-grpc-use-token",
-            "-gpu", config.gpuMode.emulatorGPU,
+            "-gpu", config.effectiveGPUMode.emulatorGPU,
             "-no-boot-anim",
             "-no-metrics",
             "-netfast",
             "-camera-back", "none", "-camera-front", "none",
         ]
         args += settings.hiddenQtWindow ? ["-qt-hide-window"] : ["-no-window"]
-        if !config.gpuMode.features.isEmpty { args += ["-feature", config.gpuMode.features.joined(separator: ",")] }
+        if !config.effectiveGPUMode.features.isEmpty { args += ["-feature", config.effectiveGPUMode.features.joined(separator: ",")] }
         if !config.audioEnabled { args.append("-no-audio") }
         if !config.fastBoot { args.append("-no-snapshot-save") }
         // A snapshot taken under other GPU features would restore a guest driver that no longer matches.

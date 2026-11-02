@@ -107,7 +107,7 @@ Measured on a MacBook with an Apple M5 and 16 GB of RAM, running Android 16:
 
 Where the speed comes from:
 
-- **ANGLE on Vulkan instead of the legacy OpenGL path.** The emulator's default macOS renderer sits on Apple's deprecated OpenGL 4.1 and gives Android GLES 3.0 only. VexPlayer turns on `GuestAngle`, so Android gets GLES 3.1 and rendering is about 2.5× faster.
+- **ANGLE on Vulkan instead of the legacy OpenGL path.** The emulator's default macOS renderer sits on Apple's deprecated OpenGL 4.1 and gives Android GLES 3.0 only. VexPlayer turns on `GuestAngle`, so Android gets GLES 3.1 and rendering is about 2.5× faster. Android 15 and newer only: the ANGLE builds in older images don't run on MoltenVK (Android 13 boot-loops, Android 14 draws no text), so Android 11–14 stay on the OpenGL path with GLES 3.0.
 - **Zero-copy frames.** The emulator writes each frame into shared memory, and a Metal texture points straight at those pages (`makeBuffer(bytesNoCopy:)`). Nothing is copied on the way to the screen.
 - **A quiet idle.** The emulator's sensor HAL switches every virtual sensor on at boot and never off; once any app has read one at 50 Hz, the emulator keeps streaming all of them at 50 Hz with nobody listening. VexPlayer turns off the two system features that hold the accelerometer on an idle screen (flip-to-screen-off and the rotate suggestion button), and VexIME drops the stream back to 1 Hz after an app switch and once a minute. Idle CPU goes from ~25 % to ~7 %.
 - **Events, not polling.** Rotation and the foreground app come from Android's event log the moment they change. Earlier builds asked `dumpsys` every 700 ms, which kept Android's system server busy around the clock.

@@ -25,6 +25,11 @@ enum GPUMode: String, Codable, CaseIterable, Identifiable, Sendable {
     var features: [String] {
         self == .angleVulkan ? ["GuestAngle", "VulkanSnapshots", "-HostComposition", "-VulkanQueueSubmitWithCommands"] : []
     }
+    /// Older images ship a guest ANGLE that MoltenVK can't run, so they use OpenGL instead. Android 13 asks
+    /// for a Vulkan extension MoltenVK lacks: SurfaceFlinger aborts ("no suitable EGLConfig found") and
+    /// Android boot-loops. Android 14 boots, but Metal rejects its text pipelines (uint vertex attributes
+    /// read as float), so no text is drawn anywhere; the emulator also reports GLES 2.0 to apps there.
+    static let minGuestAngleAPI = 35
 }
 
 struct DisplayPreset: Identifiable, Hashable, Sendable {
@@ -76,6 +81,12 @@ struct InstanceConfig: Codable, Identifiable, Hashable, Sendable {
 
     var imageTag: String { imagePath.split(separator: ";").dropFirst(2).first.map(String.init) ?? "" }
     var platform: String { imagePath.split(separator: ";").dropFirst().first.map(String.init) ?? "" }
+    /// 33 for "android-33", 36 for "android-36.1".
+    var apiLevel: Int { Int(platform.dropFirst("android-".count).prefix { $0.isNumber }) ?? 0 }
+    /// The mode the emulator really runs: Vulkan needs an image new enough for it (GPUMode.minGuestAngleAPI).
+    var effectiveGPUMode: GPUMode {
+        gpuMode == .angleVulkan && apiLevel < GPUMode.minGuestAngleAPI ? .host : gpuMode
+    }
 
     var avdDir: URL { AppPaths.avdHome.appendingPathComponent("\(id).avd", isDirectory: true) }
     /// Which profile is currently written into the instance's build.prop files.
@@ -125,7 +136,7 @@ struct InstanceConfig: Codable, Identifiable, Hashable, Sendable {
             ("hw.lcd.vsync", "\(refreshRate)"),
             ("hw.initialOrientation", isLandscape ? "landscape" : "portrait"),
             ("hw.gpu.enabled", "yes"),
-            ("hw.gpu.mode", gpuMode.emulatorGPU),
+            ("hw.gpu.mode", effectiveGPUMode.emulatorGPU),
             ("hw.keyboard", "yes"),
             ("hw.mainKeys", "no"),
             ("hw.dPad", "no"),

@@ -77,6 +77,10 @@ struct InstanceEditorView: View {
                     Picker("Graphics", selection: $config.gpuMode) {
                         ForEach(GPUMode.allCases) { Text($0.title).tag($0) }
                     }
+                    if config.effectiveGPUMode != config.gpuMode {
+                        Text("Android 14 and older can't draw through Vulkan on a Mac, so this instance uses OpenGL (GLES 3.0).")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     Toggle("Quickboot (save the state when stopping)", isOn: $config.fastBoot)
                     Text("Recommended: no more than \(InstanceConfig.performanceCores) cores (the Mac's performance cores keep games smooth) and no more than half of the RAM (\(InstanceConfig.hostRAMMB / 1024) GB).")
                         .font(.caption).foregroundStyle(.secondary)
