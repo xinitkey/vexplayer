@@ -10,9 +10,9 @@ enum GPUMode: String, Codable, CaseIterable, Identifiable, Sendable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .angleVulkan: return "Metal через Vulkan · GLES 3.1 (рекомендуется)"
-        case .host: return "Metal через OpenGL · GLES 3.0"
-        case .swiftshader: return "Программный рендер (совместимость)"
+        case .angleVulkan: return String(localized: "Metal through Vulkan · GLES 3.1 (recommended)")
+        case .host: return String(localized: "Metal through OpenGL · GLES 3.0")
+        case .swiftshader: return String(localized: "Software rendering (compatibility)")
         }
     }
     /// Value for `-gpu` / hw.gpu.mode.
@@ -35,12 +35,12 @@ struct DisplayPreset: Identifiable, Hashable, Sendable {
     let dpi: Int
 
     static let all: [DisplayPreset] = [
-        .init(id: "tablet1080", title: "Планшет 1920×1080 · 280 dpi (для игр)", width: 1920, height: 1080, dpi: 280),
-        .init(id: "tablet1440", title: "Планшет 2560×1440 · 360 dpi", width: 2560, height: 1440, dpi: 360),
-        .init(id: "tablet900", title: "Планшет 1600×900 · 240 dpi (экономный)", width: 1600, height: 900, dpi: 240),
-        .init(id: "phone1080", title: "Телефон 1080×1920 · 420 dpi", width: 1080, height: 1920, dpi: 420),
-        .init(id: "phone2400", title: "Телефон 1080×2400 · 440 dpi", width: 1080, height: 2400, dpi: 440),
-        .init(id: "phone720", title: "Телефон 720×1280 · 320 dpi", width: 720, height: 1280, dpi: 320),
+        .init(id: "tablet1080", title: String(localized: "Tablet 1920×1080 · 280 dpi (for games)"), width: 1920, height: 1080, dpi: 280),
+        .init(id: "tablet1440", title: String(localized: "Tablet 2560×1440 · 360 dpi"), width: 2560, height: 1440, dpi: 360),
+        .init(id: "tablet900", title: String(localized: "Tablet 1600×900 · 240 dpi (economical)"), width: 1600, height: 900, dpi: 240),
+        .init(id: "phone1080", title: String(localized: "Phone 1080×1920 · 420 dpi"), width: 1080, height: 1920, dpi: 420),
+        .init(id: "phone2400", title: String(localized: "Phone 1080×2400 · 440 dpi"), width: 1080, height: 2400, dpi: 440),
+        .init(id: "phone720", title: String(localized: "Phone 720×1280 · 320 dpi"), width: 720, height: 1280, dpi: 320),
     ]
 }
 
@@ -63,8 +63,11 @@ struct InstanceConfig: Codable, Identifiable, Hashable, Sendable {
     var rootOnBoot = false               // `adb root` after boot (Google APIs images only)
     /// DeviceProfile.id: present as a regular phone (Google APIs images only, see DeviceProfile).
     var deviceProfile: String?
+    /// Lite edition of the image (see LiteEdition). Chosen at creation, like the image itself.
+    var lite: Bool?
     var createdAt = Date()
 
+    var isLite: Bool { lite == true }
     var isLandscape: Bool { width > height }
 
     var imageDirRelative: String {
@@ -80,6 +83,8 @@ struct InstanceConfig: Codable, Identifiable, Hashable, Sendable {
     var appliedProfileMarker: String? { try? String(contentsOf: profileMarkerFile, encoding: .utf8) }
     /// System partitions must stay writable while a profile is (or was) written into them.
     var needsWritableSystem: Bool { deviceProfile != nil || appliedProfileMarker != nil }
+    /// Which version of the Lite package list has been applied.
+    var liteMarkerFile: URL { avdDir.appendingPathComponent("vex-lite.txt") }
     var avdIni: URL { AppPaths.avdHome.appendingPathComponent("\(id).ini") }
     var metadataFile: URL { avdDir.appendingPathComponent("vex.json") }
 
@@ -94,6 +99,8 @@ struct InstanceConfig: Codable, Identifiable, Hashable, Sendable {
     }
     static var defaultCores: Int { max(2, min(8, performanceCores)) }
     static var defaultRAM: Int { hostRAMMB >= 32_768 ? 8192 : hostRAMMB >= 16_384 ? 4096 : 3072 }
+    /// After a Quickboot restore the whole guest RAM is resident on the Mac, so Lite's smaller Android pays off here.
+    static var defaultLiteRAM: Int { hostRAMMB >= 32_768 ? 6144 : hostRAMMB >= 16_384 ? 3072 : 2048 }
 
     /// config.ini tuned for performance on Apple Silicon.
     func configIni() -> String {

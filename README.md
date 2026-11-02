@@ -30,7 +30,7 @@ Gaming emulators like MuMuPlayer made Android games feel at home on a desktop, b
 - **Free and open.** Apache 2.0. Fork it, ship your own build, make it better.
 
 > [!NOTE]
-> **Status: 0.1, early preview.** The full end-to-end test passes on a live Android 16 device (boot, frames, touch, keyboard, Cyrillic text, rotation, Quickboot). Expect rough edges. The interface is currently in Russian; an English localization is the next item on the [roadmap](#roadmap).
+> **Status: 0.1, early preview.** The full end-to-end test passes on a live Android 16 device (boot, frames, touch, keyboard, Cyrillic text, rotation, Quickboot). Expect rough edges. The interface is in English and Russian and follows your macOS language.
 
 ## Highlights
 
@@ -122,6 +122,7 @@ Where the speed comes from:
 | Feature | Status |
 |---|:---:|
 | Android 11–17, Google Play or Google APIs images | ✅ |
+| Lite edition of every image: no Google apps a game doesn't need, 1 GB less RAM | ✅ |
 | Multi-instance: create, clone, wipe, delete, batch start, tile windows in a grid | ✅ |
 | Quickboot snapshots (~5 s start) | ✅ |
 | Hidden instances on efficiency cores, optional pause when minimized | ✅ |
@@ -142,6 +143,7 @@ Where the speed comes from:
 | CPU, RAM, resolution, DPI, 60 / 90 / 120 Hz, GPU mode | ✅ |
 | Device model profiles (Samsung, Xiaomi, OnePlus, ASUS ROG, Pixel) | ✅ Google APIs images |
 | Root via `adb root` | ✅ Google APIs images |
+| Interface in English and Russian | ✅ |
 | Two-way shared folder Mac ↔ Android | ⏳ |
 | Audio in screen recordings | ⏳ |
 | Root on Google Play images | ⏳ |
@@ -159,7 +161,7 @@ open build/VexPlayer.app
 
 On first launch:
 
-1. Choose an Android version. *Google Play* images include the Play Store; *Google APIs* images have no Play Store but allow root and device model profiles.
+1. Choose an Android version. *Google Play* images include the Play Store; *Google APIs* images have no Play Store but allow root and device model profiles. Every image can also be created as a *Lite* instance (see [Lite edition](#lite-edition)).
 2. Read and accept the Android SDK license. VexPlayer downloads about 2.3 GB from `dl.google.com`.
 3. Click the play button next to the new instance. The first boot takes around 40 seconds; after that, Quickboot brings it back in about 5.
 
@@ -219,6 +221,19 @@ Physical keys and text are handled differently, the same way they are on a phone
 - **In a text field**, keystrokes go through the macOS text input system first. Whatever input source you have selected (Russian, Ukrainian, Pinyin, Japanese, emoji picker, dead keys) is what you type, and switching it on the Mac takes effect immediately. The composed text is committed by **VexIME**, a tiny Android input method (`android/vexime`, about 13 KB) that VexPlayer installs and enables automatically.
 
 VexIME also tells the Mac side when a text field gains focus, which is how key mapping knows to step aside while you type.
+
+## Lite edition
+
+Every installed image can be used as is or as its **Lite** edition, chosen when you create an instance. Lite is the same Google system image with the apps and background services a game never needs switched off on the first boot: the Google app and Assistant, Android System Intelligence, Photos, Messages, Gmail, Calendar, Phone, Clock, Maps, Drive, YouTube, Digital Wellbeing, accessibility and speech services, and a few more. The Play Store, Google Play services, Chrome, Gboard and Files stay.
+
+| | Full | Lite |
+|---|---:|---:|
+| Memory used by Android itself (home screen, idle) | 1.9 GB | **1.4 GB** |
+| Cached background apps | 0.9 GB | **0.2 GB** |
+| Default RAM of the instance (16 GB Mac) | 4 GB | **3 GB** |
+| Idle CPU | ~7 % | **~5 %** |
+
+The default RAM matters more than it looks: after a Quickboot restore the whole guest RAM is resident on the Mac, so a 3 GB Lite instance uses about 1 GB less of your Mac's memory than a 4 GB one. Nothing is uninstalled: any app can be turned back on in Android's Settings → Apps.
 
 ## Device profiles
 
@@ -301,7 +316,7 @@ The end-to-end test boots a real instance and checks frames, touch input, the hi
 
 ## Roadmap
 
-- English localization of the interface
+- More interface languages
 - Signed and notarized DMG releases
 - Two-way shared folder between the Mac and Android
 - Audio in screen recordings
@@ -310,6 +325,8 @@ The end-to-end test boots a real instance and checks frames, touch input, the hi
 ## Contributing
 
 Issues and pull requests are welcome. Before opening a PR, please make sure `swift test` passes, and run the end-to-end test if you touched the engine, display or input code. Keep commits focused and write commit messages in English.
+
+**Translations.** English is the development language: the strings in the source are the keys of `Resources/Localization/<language>.lproj/Localizable.strings`. `scripts/check-strings.sh ru` lists the strings that still need a Russian translation. To add a language, create its `.lproj` folder, add the code to `CFBundleLocalizations` in `Resources/Info.plist` and to `AppSettings.interfaceLanguages`, and run the script with the new code.
 
 ## License
 

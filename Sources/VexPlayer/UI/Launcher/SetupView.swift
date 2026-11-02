@@ -16,18 +16,18 @@ struct SetupView: View {
                     Image(systemName: "apple.terminal.on.rectangle")
                         .font(.system(size: 46)).foregroundStyle(Color.accentColor)
                     Text("VexPlayer").font(.largeTitle.bold())
-                    Text("Android для Apple Silicon: нативный ARM64 без трансляции, Hypervisor.framework и GPU через Metal.")
+                    Text("Android for Apple Silicon: native ARM64 without translation, Hypervisor.framework and GPU through Metal.")
                         .multilineTextAlignment(.center).foregroundStyle(.secondary).frame(maxWidth: 520)
                 }
 
                 if let catalog = sdk.catalog {
                     form(catalog)
                 } else if sdk.isLoadingCatalog {
-                    ProgressView("Загрузка каталога Android…").padding()
+                    ProgressView("Loading the Android catalog…").padding()
                 } else {
                     VStack(spacing: 8) {
-                        Text(sdk.catalogError ?? "Каталог не загружен").foregroundStyle(.red)
-                        Button("Повторить") { Task { await sdk.refreshCatalog() } }
+                        Text(sdk.catalogError ?? String(localized: "The catalog didn't load")).foregroundStyle(.red)
+                        Button("Retry") { Task { await sdk.refreshCatalog() } }
                     }
                 }
             }
@@ -42,13 +42,13 @@ struct SetupView: View {
         let packages = selectedPackages(catalog)
         let total = packages.filter { !$0.isInstalled }.reduce(Int64(0)) { $0 + $1.size }
         return VStack(alignment: .leading, spacing: 14) {
-            Picker("Версия Android", selection: Binding(get: { imagePath ?? catalog.recommendedImage?.path }, set: { imagePath = $0 })) {
+            Picker("Android version", selection: Binding(get: { imagePath ?? catalog.recommendedImage?.path }, set: { imagePath = $0 })) {
                 ForEach(catalog.systemImages) { img in
                     Text("\(img.title) — \(formatBytes(img.size))").tag(Optional(img.path))
                 }
             }
             .disabled(installing)
-            Text("Google Play — с Play Маркетом. Google APIs — без Play Маркета, зато с root-доступом через adb. Другие версии можно докачать позже.")
+            Text("Google Play includes the Play Store. Google APIs has no Play Store but allows root through adb. You can download other versions later.")
                 .font(.caption).foregroundStyle(.secondary)
 
             GroupBox {
@@ -61,20 +61,20 @@ struct SetupView: View {
             }
 
             HStack {
-                Toggle("Я принимаю лицензионные соглашения Android SDK", isOn: $accepted).disabled(installing)
-                Button("Читать…") { showLicenses = true }.buttonStyle(.link)
+                Toggle("I accept the Android SDK license agreements", isOn: $accepted).disabled(installing)
+                Button("Read…") { showLicenses = true }.buttonStyle(.link)
             }
 
             HStack {
                 if let errorText { Text(errorText).foregroundStyle(.red).font(.caption) }
                 Spacer()
                 if installing {
-                    Button("Отмена") { sdk.cancelAll() }
+                    Button("Cancel") { sdk.cancelAll() }
                 }
                 Button {
                     install(packages)
                 } label: {
-                    Text(total > 0 ? "Скачать и установить (\(formatBytes(total)))" : "Готово")
+                    Text(total > 0 ? "Download and install (\(formatBytes(total)))" : "Done")
                         .frame(minWidth: 220)
                 }
                 .buttonStyle(.borderedProminent)
@@ -126,7 +126,7 @@ struct PackageProgressRow: View {
                 if !package.isSystemImage { Text(package.revision).font(.caption).foregroundStyle(.secondary) }
                 Spacer()
                 if package.isInstalled && !(progress?.isActive ?? false) {
-                    Label("Установлено", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
+                    Label("Installed", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
                 } else {
                     Text(progress?.label ?? formatBytes(package.size)).font(.caption).foregroundStyle(.secondary)
                 }
@@ -145,7 +145,7 @@ struct LicenseSheet: View {
 
     var body: some View {
         VStack(alignment: .leading) {
-            Text("Лицензионные соглашения").font(.title3.bold())
+            Text("License agreements").font(.title3.bold())
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     ForEach(ids, id: \.self) { id in
@@ -157,14 +157,14 @@ struct LicenseSheet: View {
             HStack {
                 Spacer()
                 if let onAccept {
-                    Button("Отмена") { dismiss() }.keyboardShortcut(.cancelAction)
-                    Button("Принять и скачать") {
+                    Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                    Button("Accept and download") {
                         onAccept()
                         dismiss()
                     }
                     .keyboardShortcut(.defaultAction)
                 } else {
-                    Button("Закрыть") { dismiss() }.keyboardShortcut(.defaultAction)
+                    Button("Close") { dismiss() }.keyboardShortcut(.defaultAction)
                 }
             }
         }
@@ -183,12 +183,12 @@ struct ImageManagerView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Образы Android").font(.title2.bold())
+                Text("Android images").font(.title2.bold())
                 Spacer()
                 if sdk.isLoadingCatalog { ProgressView().controlSize(.small) }
                 Button { Task { await sdk.refreshCatalog() } } label: { Image(systemName: "arrow.clockwise") }
             }
-            Text("Все образы — нативные ARM64: на Apple Silicon они работают без трансляции инструкций.")
+            Text("All images are native ARM64: on Apple Silicon they run without instruction translation.")
                 .font(.caption).foregroundStyle(.secondary)
 
             List {
@@ -196,7 +196,7 @@ struct ImageManagerView: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(img.title).font(.callout.weight(.medium))
-                            Text("API \(img.apiString ?? "?") · ред. \(img.revision)\(img.supportsRoot ? " · root через adb" : "")")
+                            (Text("API \(img.apiString ?? "?") · rev. \(img.revision)") + Text(img.supportsRoot ? " · root through adb" : ""))
                                 .font(.caption).foregroundStyle(.secondary)
                             if let p = sdk.progress[img.path], p.isActive {
                                 ProgressView(value: p.fraction)
@@ -205,12 +205,12 @@ struct ImageManagerView: View {
                         }
                         Spacer()
                         if img.isInstalled {
-                            Label("Установлен", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.caption)
-                            Button("Удалить") { remove(img) }.disabled(isUsed(img))
-                                .help(isUsed(img) ? "Используется инстансом" : "")
+                            Label("Installed", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.caption)
+                            Button("Remove") { remove(img) }.disabled(isUsed(img))
+                                .help(isUsed(img) ? "Used by an instance" : "")
                         } else {
                             Text(formatBytes(img.size)).font(.caption).foregroundStyle(.secondary)
-                            Button("Скачать") { install(img) }
+                            Button("Download") { install(img) }
                                 .disabled(sdk.progress[img.path]?.isActive ?? false)
                         }
                     }
@@ -220,7 +220,7 @@ struct ImageManagerView: View {
             HStack {
                 if let errorText { Text(errorText).foregroundStyle(.red).font(.caption) }
                 Spacer()
-                Button("Готово") { dismiss() }.keyboardShortcut(.defaultAction)
+                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
             }
         }
         .padding()

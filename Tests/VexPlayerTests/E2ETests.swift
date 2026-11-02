@@ -182,6 +182,56 @@ struct E2ETests {
         _ = await waitUntil(120) { !session.state.isAlive }
     }
 
+    /// A new Lite instance boots with the Lite package list disabled; the instance is deleted afterwards.
+    @Test func liteEdition() async throws {
+        let path = "system-images;android-36;google_apis_playstore;arm64-v8a"
+        try #require(SDKManager.shared.installedImages.contains { $0.path == path }, "Google Play image not installed")
+        let store = InstanceStore.shared
+        var config = InstanceConfig(id: store.nextID(), name: "E2E-Lite", imagePath: path)
+        config.lite = true
+        config.ramMB = InstanceConfig.defaultLiteRAM
+        config = try store.create(config)
+        let session = store.session(for: config)
+        // A running instance can't be deleted: stop it first, whatever the checks did.
+        var failure: Error?
+        do {
+            try await checkLite(session, config)
+        } catch {
+            failure = error
+        }
+        dumpLog(session)
+        session.forceStop()
+        _ = await waitUntil(60) { !session.state.isAlive }
+        try store.delete(config.id)
+        if let failure { throw failure }
+    }
+
+    private func checkLite(_ session: InstanceSession, _ config: InstanceConfig) async throws {
+        let t0 = Date()
+        session.start()
+        try #require(await waitUntil(600) { session.state == .running || !session.state.isAlive }, "never booted")
+        log("lite first boot: \(String(format: "%.1f", Date().timeIntervalSince(t0))) s")
+        let marker = "lite@\(LiteEdition.version)"
+        try #require(await waitUntil(180) { (try? String(contentsOf: config.liteMarkerFile, encoding: .utf8)) == marker },
+                     "Lite package list never applied")
+
+        let disabled = Set(try await session.adb.shell("pm list packages -d").split(whereSeparator: \.isNewline)
+            .map { $0.replacingOccurrences(of: "package:", with: "") })
+        let installed = Set(try await session.adb.shell("pm list packages").split(whereSeparator: \.isNewline)
+            .map { $0.replacingOccurrences(of: "package:", with: "") })
+        let expected = Set(LiteEdition.disabledPackages).intersection(installed)
+        log("lite: \(expected.count) of \(LiteEdition.disabledPackages.count) listed packages present, \(expected.subtracting(disabled).count) still enabled")
+        #expect(expected.isSubset(of: disabled))
+        #expect(!disabled.contains("com.android.vending"))
+        #expect(!disabled.contains("com.google.android.gms"))
+
+        try? await Task.sleep(for: .seconds(30))
+        let mem = (try? await session.adb.shell("dumpsys meminfo | grep -E 'Used RAM|Free RAM'; true")) ?? ""
+        log("lite meminfo: \(mem.replacingOccurrences(of: "\n", with: " | "))")
+        let cached = try await session.adb.shell("device_config get activity_manager max_cached_processes")
+        #expect(cached.trimmingCharacters(in: .whitespacesAndNewlines) == "\(LiteEdition.maxCachedProcesses)")
+    }
+
     // MARK: Helpers
 
     private func waitUntil(_ seconds: Double, _ condition: () -> Bool) async -> Bool {

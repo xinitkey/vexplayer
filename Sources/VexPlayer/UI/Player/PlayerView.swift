@@ -26,7 +26,7 @@ struct PlayerView: View {
                 }
                 VStack {
                     if session.aimLocked {
-                        Text("Курсор захвачен · ` или Esc — освободить")
+                        Text("Cursor locked · press ` or Esc to release")
                             .font(.caption).padding(.horizontal, 10).padding(.vertical, 5)
                             .background(.black.opacity(0.6), in: Capsule())
                             .foregroundStyle(.white.opacity(0.85))
@@ -83,13 +83,13 @@ struct BootOverlay: View {
                     Text(message).font(.callout).multilineTextAlignment(.center).foregroundStyle(.white.opacity(0.9))
                         .frame(maxWidth: 460).textSelection(.enabled)
                     HStack {
-                        Button("Повторить") { session.start() }.keyboardShortcut(.defaultAction)
-                        Button("Журнал") { ui.showLogs = true }
+                        Button("Retry") { session.start() }.keyboardShortcut(.defaultAction)
+                        Button("Log") { ui.showLogs = true }
                     }
                 case .stopped:
                     Image(systemName: "power").font(.system(size: 34)).foregroundStyle(.white.opacity(0.7))
-                    Text("Инстанс остановлен").foregroundStyle(.white.opacity(0.85))
-                    Button("Запустить") { session.start() }.keyboardShortcut(.defaultAction)
+                    Text("The instance is stopped").foregroundStyle(.white.opacity(0.85))
+                    Button("Start") { session.start() }.keyboardShortcut(.defaultAction)
                 default:
                     ProgressView().controlSize(.large).tint(.white)
                     Text(session.state.label).font(.headline).foregroundStyle(.white)
@@ -118,10 +118,10 @@ struct PlayerSidebar: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 1) {
                     SidebarButton(symbol: session.keymapEnabled ? "keyboard.fill" : "keyboard",
-                                  help: session.keymapEnabled ? "Раскладка клавиш: вкл (⌥K)" : "Раскладка клавиш: выкл (⌥K)",
+                                  help: session.keymapEnabled ? "Key mapping: on (⌥K)" : "Key mapping: off (⌥K)",
                                   active: session.keymapEnabled) { session.keymapEnabled.toggle() }
                         .keyboardShortcut("k", modifiers: .option)
-                    SidebarButton(symbol: "slider.horizontal.3", help: "Редактор раскладки (⌥E)", active: ui.editingKeymap) {
+                    SidebarButton(symbol: "slider.horizontal.3", help: "Key mapping editor (⌥E)", active: ui.editingKeymap) {
                         ui.editingKeymap.toggle()
                     }
                     .keyboardShortcut("e", modifiers: .option)
@@ -130,28 +130,28 @@ struct PlayerSidebar: View {
 
                     Divider().padding(.vertical, 3).padding(.horizontal, 10)
 
-                    SidebarButton(symbol: "camera", help: "Скриншот (⌥S)") { session.takeScreenshot() }
+                    SidebarButton(symbol: "camera", help: "Screenshot (⌥S)") { session.takeScreenshot() }
                         .keyboardShortcut("s", modifiers: .option).disabled(!running)
                     SidebarButton(symbol: session.isRecordingVideo ? "stop.circle.fill" : "record.circle",
-                                  help: session.isRecordingVideo ? "Остановить запись" : "Запись экрана (⌥R)",
+                                  help: session.isRecordingVideo ? "Stop recording" : "Screen recording (⌥R)",
                                   active: session.isRecordingVideo, tint: session.isRecordingVideo ? .red : nil) {
                         session.toggleVideoRecording()
                     }
                     .keyboardShortcut("r", modifiers: .option).disabled(!running)
-                    SidebarButton(symbol: "shippingbox", help: "Установить APK / XAPK") { pickFiles(apk: true) }.disabled(!running)
-                    SidebarButton(symbol: "folder", help: "Отправить файлы в Android (Download)") { pickFiles(apk: false) }.disabled(!running)
-                    SidebarButton(symbol: "location", help: "Виртуальное местоположение") { ui.showLocation = true }.disabled(!running)
-                    SidebarButton(symbol: "rotate.right", help: "Повернуть экран") { session.rotate() }.disabled(!running)
-                    SidebarButton(symbol: "speaker.plus", help: "Громкость +") { session.volumeUp() }.disabled(!running)
-                    SidebarButton(symbol: "speaker.minus", help: "Громкость −") { session.volumeDown() }.disabled(!running)
+                    SidebarButton(symbol: "shippingbox", help: "Install APK / XAPK") { pickFiles(apk: true) }.disabled(!running)
+                    SidebarButton(symbol: "folder", help: "Send files to Android (Download)") { pickFiles(apk: false) }.disabled(!running)
+                    SidebarButton(symbol: "location", help: "Virtual location") { ui.showLocation = true }.disabled(!running)
+                    SidebarButton(symbol: "rotate.right", help: "Rotate the screen") { session.rotate() }.disabled(!running)
+                    SidebarButton(symbol: "speaker.plus", help: "Volume up") { session.volumeUp() }.disabled(!running)
+                    SidebarButton(symbol: "speaker.minus", help: "Volume down") { session.volumeDown() }.disabled(!running)
 
                     macroMenu.disabled(!running)
                     syncMenu
 
-                    SidebarButton(symbol: "arrow.up.left.and.arrow.down.right", help: "Полный экран (⌃⌘F)") {
+                    SidebarButton(symbol: "arrow.up.left.and.arrow.down.right", help: "Full screen (⌃⌘F)") {
                         NSApp.keyWindow?.toggleFullScreen(nil)
                     }
-                    SidebarButton(symbol: "square.grid.2x2", help: "Менеджер инстансов") {
+                    SidebarButton(symbol: "square.grid.2x2", help: "Instance manager") {
                         NSApp.sendAction(#selector(AppDelegate.showLauncher), to: nil, from: nil)
                     }
                 }
@@ -161,9 +161,9 @@ struct PlayerSidebar: View {
             Divider().padding(.horizontal, 10).padding(.vertical, 3)
             VStack(spacing: 1) {
                 moreMenu
-                SidebarButton(symbol: "chevron.backward", help: "Назад") { session.back() }.disabled(!running)
-                SidebarButton(symbol: "circle", help: "Домой") { session.home() }.disabled(!running)
-                SidebarButton(symbol: "square", help: "Недавние") { session.recents() }.disabled(!running)
+                SidebarButton(symbol: "chevron.backward", help: "Back") { session.back() }.disabled(!running)
+                SidebarButton(symbol: "circle", help: "Home") { session.home() }.disabled(!running)
+                SidebarButton(symbol: "square", help: "Recents") { session.recents() }.disabled(!running)
             }
             .padding(.bottom, 6)
         }
@@ -185,77 +185,77 @@ struct PlayerSidebar: View {
                 }
             }
             Divider()
-            Button("Новая схема…") {
+            Button("New scheme…") {
                 session.createScheme(copyingActive: false)
                 ui.editingKeymap = true
             }
-            Button("Редактировать текущую…") { ui.editingKeymap = true }
+            Button("Edit the current one…") { ui.editingKeymap = true }
         } label: {
             SidebarIcon(symbol: "list.bullet.rectangle")
         }
         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
-        .help("Схема управления: \(session.activeScheme?.name ?? "—")")
+        .help("Control scheme: \(session.activeScheme?.name ?? "—")")
     }
 
     private var macroMenu: some View {
         Menu {
             let rec = session.recorder
             if rec.isRecording {
-                Button("Остановить запись") { rec.stopRecording() }
+                Button("Stop recording") { rec.stopRecording() }
             } else {
-                Button("Записать действия") { rec.startRecording() }
+                Button("Record actions") { rec.startRecording() }
             }
-            Button(rec.isPlaying ? "Остановить воспроизведение" : "Воспроизвести (\(String(format: "%.1f", rec.duration)) с)") {
+            Button(rec.isPlaying ? "Stop playback" : "Play (\(String(format: "%.1f", rec.duration)) s)") {
                 rec.isPlaying ? rec.stop() : rec.play(on: session.input)
             }
             .disabled(rec.steps.isEmpty || rec.isRecording)
-            Toggle("Повторять по кругу", isOn: Binding(get: { rec.loop }, set: { rec.loop = $0 }))
+            Toggle("Loop", isOn: Binding(get: { rec.loop }, set: { rec.loop = $0 }))
             Divider()
-            Button("Сохранить макрос…") { saveMacro() }.disabled(rec.steps.isEmpty)
-            Button("Загрузить макрос…") { loadMacro() }
+            Button("Save macro…") { saveMacro() }.disabled(rec.steps.isEmpty)
+            Button("Load macro…") { loadMacro() }
         } label: {
             SidebarIcon(symbol: session.recorder.isRecording ? "record.circle.fill" : "play.rectangle.on.rectangle",
                         active: session.recorder.isRecording || session.recorder.isPlaying,
                         tint: session.recorder.isRecording ? .red : nil)
         }
         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
-        .help("Запись и повтор действий (макросы)")
+        .help("Record and replay actions (macros)")
     }
 
     private var syncMenu: some View {
         Menu {
-            Toggle("Синхронизатор включён", isOn: $sync.enabled)
-            Button("Сделать это окно ведущим") {
+            Toggle("Synchronizer on", isOn: $sync.enabled)
+            Button("Make this window the leader") {
                 sync.leaderID = session.id
                 sync.enabled = true
             }
             if let leader = sync.leaderID, let s = InstanceStore.shared.sessions[leader] {
-                Text("Ведущий: \(s.config.name)")
+                Text("Leader: \(s.config.name)")
             }
         } label: {
             SidebarIcon(symbol: "rectangle.on.rectangle",
                         active: sync.enabled && sync.leaderID == session.id)
         }
         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
-        .help("Синхронизатор: повторять действия во всех инстансах")
+        .help("Synchronizer: repeat actions in every instance")
     }
 
     private var moreMenu: some View {
         Menu {
-            Button("Встряхнуть") { session.shake() }
-            Button("Питание (кнопка)") { session.power() }
-            Button("Перезапустить Android") { session.restart() }
-            Button("Упорядочить окна") { PlayerWindows.shared.arrange() }
+            Button("Shake") { session.shake() }
+            Button("Power button") { session.power() }
+            Button("Restart Android") { session.restart() }
+            Button("Arrange windows") { PlayerWindows.shared.arrange() }
             Divider()
-            Button("Журнал эмулятора") { ui.showLogs = true }
-            Button("Открыть папку скриншотов") { NSWorkspace.shared.open(AppPaths.screenshots) }
+            Button("Emulator log") { ui.showLogs = true }
+            Button("Open the screenshots folder") { NSWorkspace.shared.open(AppPaths.screenshots) }
             Divider()
-            Button("Остановить инстанс") { session.stop() }
+            Button("Stop the instance") { session.stop() }
         } label: {
             SidebarIcon(symbol: "ellipsis")
         }
         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
-        .help("Ещё")
+        .help("More")
     }
 
     private func pickFiles(apk: Bool) {
@@ -264,7 +264,7 @@ struct PlayerSidebar: View {
         panel.canChooseDirectories = false
         if apk {
             panel.allowedContentTypes = ["apk", "xapk", "apks", "apkm"].compactMap { UTType(filenameExtension: $0) }
-            panel.message = "Выберите APK, XAPK или APKS"
+            panel.message = String(localized: "Choose an APK, XAPK or APKS")
         }
         guard panel.runModal() == .OK else { return }
         session.install(panel.urls)
@@ -303,7 +303,7 @@ struct SidebarIcon: View {
 
 struct SidebarButton: View {
     let symbol: String
-    let help: String
+    let help: LocalizedStringKey
     var active = false
     var tint: Color?
     let action: () -> Void
@@ -328,13 +328,13 @@ struct LogView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Журнал · \(session.config.name)").font(.headline)
+                Text("Log · \(session.config.name)").font(.headline)
                 Spacer()
-                Button("Скопировать") {
+                Button("Copy") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(session.logLines.joined(), forType: .string)
                 }
-                Button("Закрыть") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
             }
             ScrollView {
                 Text(session.logLines.joined())

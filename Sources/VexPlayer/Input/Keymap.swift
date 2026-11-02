@@ -33,9 +33,9 @@ enum KeyCode {
             0x52: "Num0", 0x53: "Num1", 0x54: "Num2", 0x55: "Num3", 0x56: "Num4", 0x57: "Num5",
             0x58: "Num6", 0x59: "Num7", 0x5B: "Num8", 0x5C: "Num9",
         ]
-        n[mouseLeft] = "ЛКМ"
-        n[mouseRight] = "ПКМ"
-        n[mouseMiddle] = "СКМ"
+        n[mouseLeft] = String(localized: "LMB")
+        n[mouseRight] = String(localized: "RMB")
+        n[mouseMiddle] = String(localized: "MMB")
         return n
     }()
 }
@@ -60,13 +60,13 @@ enum KeyControlKind: String, Codable, CaseIterable, Identifiable, Sendable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .tap: return "Нажатие"
-        case .repeatTap: return "Автоклик"
-        case .joystick: return "Джойстик"
-        case .aim: return "Обзор (мышь)"
-        case .fire: return "Огонь"
-        case .swipe: return "Свайп"
-        case .skill: return "Навык"
+        case .tap: return String(localized: "Tap")
+        case .repeatTap: return String(localized: "Auto-tap")
+        case .joystick: return String(localized: "Joystick")
+        case .aim: return String(localized: "Mouse look")
+        case .fire: return String(localized: "Fire")
+        case .swipe: return String(localized: "Swipe")
+        case .skill: return String(localized: "Skill")
         }
     }
     var symbol: String {
@@ -168,7 +168,7 @@ struct KeymapScheme: Codable, Identifiable, Hashable, Sendable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
-        name = try c.decodeIfPresent(String.self, forKey: .name) ?? "Схема"
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? String(localized: "Scheme")
         keymap = try c.decode(Keymap.self, forKey: .keymap)
     }
 }
@@ -180,12 +180,12 @@ struct KeymapProfile: Codable, Hashable, Sendable {
     var active: KeymapScheme? { schemes.first { $0.id == activeID } ?? schemes.first }
 
     static func starter() -> KeymapProfile {
-        let scheme = KeymapScheme(name: "Схема 1")
+        let scheme = KeymapScheme(name: String(localized: "Scheme 1"))
         return KeymapProfile(activeID: scheme.id, schemes: [scheme])
     }
 
-    /// A free name like "Схема 3".
-    func nextName(_ base: String = "Схема") -> String {
+    /// A free name like "Scheme 3".
+    func nextName(_ base: String = String(localized: "Scheme")) -> String {
         let used = Set(schemes.map(\.name))
         var n = schemes.count + 1
         while used.contains("\(base) \(n)") { n += 1 }
@@ -217,7 +217,7 @@ enum KeymapStore {
         }
         // Files from 0.1 held a single bare keymap.
         if let map = try? JSONDecoder().decode(Keymap.self, from: data) {
-            let scheme = KeymapScheme(name: "Схема 1", keymap: map)
+            let scheme = KeymapScheme(name: String(localized: "Scheme 1"), keymap: map)
             return KeymapProfile(activeID: scheme.id, schemes: [scheme])
         }
         return nil

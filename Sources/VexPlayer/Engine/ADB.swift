@@ -63,7 +63,7 @@ struct ADB: Sendable {
         case "apks", "xapk", "apkm":
             return try await installBundle(file)
         default:
-            throw NSError(domain: "VexPlayer", code: 1, userInfo: [NSLocalizedDescriptionKey: "Неизвестный формат: \(file.lastPathComponent)"])
+            throw NSError(domain: "VexPlayer", code: 1, userInfo: [NSLocalizedDescriptionKey: String(localized: "Unknown format: \(file.lastPathComponent)")])
         }
     }
 
@@ -75,7 +75,7 @@ struct ADB: Sendable {
 
         let apks = (FileManager.default.enumerator(at: tmp, includingPropertiesForKeys: nil)?.allObjects as? [URL] ?? [])
             .filter { $0.pathExtension.lowercased() == "apk" }
-        guard !apks.isEmpty else { throw NSError(domain: "VexPlayer", code: 2, userInfo: [NSLocalizedDescriptionKey: "В архиве нет APK"]) }
+        guard !apks.isEmpty else { throw NSError(domain: "VexPlayer", code: 2, userInfo: [NSLocalizedDescriptionKey: String(localized: "The archive has no APK")]) }
         let out = try await run(["install-multiple", "-r", "-g", "-t"] + apks.map(\.path))
 
         // XAPK keeps game data in Android/obb/<package>/…
@@ -130,12 +130,14 @@ struct ADB: Sendable {
         return String(line[r].dropFirst().drop { $0 != "," }.dropFirst().dropLast())
     }
 
-    /// Turns off the two system_server features that keep the accelerometer streaming on an idle screen:
-    /// flip-to-screen-off (FaceDownDetector) and the rotate suggestion button. Google Play services re-syncs
-    /// DeviceConfig from its servers, so syncing is paused until the next reboot (we re-apply on every boot).
+    /// Turns off the system_server features that keep the accelerometer streaming on an idle screen:
+    /// auto-rotate (the virtual device never tilts; our rotate button sets user_rotation), flip-to-screen-off
+    /// (FaceDownDetector) and the rotate suggestion button. Google Play services re-syncs DeviceConfig from
+    /// its servers, so syncing is paused until the next reboot (we re-apply on every boot).
     func quietSensors() async {
         _ = try? await shell("device_config set_sync_disabled_for_tests until_reboot; " +
                              "device_config put attention_manager_service enable_flip_to_screen_off false; " +
+                             "settings put system accelerometer_rotation 0; " +
                              "settings put secure show_rotation_suggestions 0; true")
     }
 

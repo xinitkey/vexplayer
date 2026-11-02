@@ -19,6 +19,8 @@ cp "$BIN/VexPlayer" "$APP/Contents/MacOS/VexPlayer"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cp Resources/VexIME.apk "$APP/Contents/Resources/VexIME.apk"
+# Interface translations live in the app bundle itself, where SwiftUI and String(localized:) look them up.
+cp -R Resources/Localization/*.lproj "$APP/Contents/Resources/"
 for bundle in "$BIN"/*.bundle; do
   [ -e "$bundle" ] && cp -R "$bundle" "$APP/Contents/Resources/"
 done

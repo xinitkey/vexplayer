@@ -28,39 +28,64 @@ struct InstanceEditorView: View {
     private var isNew: Bool { if case .new = target { return true } else { return false } }
     private var image: SDKPackage? { sdk.image(forPath: config.imagePath) }
 
+    /// Every installed image is offered twice: as is and as its Lite edition.
+    private struct ImageChoice: Hashable {
+        let path: String
+        let lite: Bool
+    }
+
+    private var imageChoice: Binding<ImageChoice> {
+        Binding(
+            get: { ImageChoice(path: config.imagePath, lite: config.isLite) },
+            set: { choice in
+                if choice.lite != config.isLite {
+                    config.ramMB = choice.lite ? InstanceConfig.defaultLiteRAM : InstanceConfig.defaultRAM
+                }
+                config.imagePath = choice.path
+                config.lite = choice.lite ? true : nil
+            })
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             Form {
-                Section("Основное") {
-                    TextField("Название", text: $config.name)
-                    Picker("Android", selection: $config.imagePath) {
-                        ForEach(sdk.installedImages) { img in Text(img.title).tag(img.path) }
+                Section("General") {
+                    TextField("Name", text: $config.name)
+                    Picker("Android", selection: imageChoice) {
+                        ForEach(sdk.installedImages) { img in
+                            Text(img.title).tag(ImageChoice(path: img.path, lite: false))
+                            Text("\(img.title) Lite").tag(ImageChoice(path: img.path, lite: true))
+                        }
                     }
                     .disabled(!isNew)
+                    if config.isLite {
+                        Text("Lite: the same Android without the Google apps and services a game doesn't need (Assistant, Photos, Gmail, Maps, YouTube and more). Android uses about 0.5 GB less memory, so the instance gets 1 GB less RAM by default. Disabled apps can be turned back on in Android's Settings → Apps.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     if !isNew {
-                        Text("Версию Android нельзя сменить у существующего инстанса — создайте новый или клонируйте.")
+                        Text("The Android version of an existing instance can't be changed. Create a new instance or clone this one.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
 
-                Section("Производительность") {
-                    Stepper("Ядра CPU: \(config.cpuCores) из \(InstanceConfig.hostCores)",
+                Section("Performance") {
+                    Stepper("CPU cores: \(config.cpuCores) of \(InstanceConfig.hostCores)",
                             value: $config.cpuCores, in: 1...max(1, InstanceConfig.hostCores))
-                    Picker("Память", selection: $config.ramMB) {
-                        ForEach(ramOptions, id: \.self) { mb in Text("\(mb / 1024) ГБ").tag(mb) }
+                    Picker("Memory", selection: $config.ramMB) {
+                        ForEach(ramOptions, id: \.self) { mb in Text("\(mb / 1024) GB").tag(mb) }
                     }
-                    Picker("Графика", selection: $config.gpuMode) {
+                    Picker("Graphics", selection: $config.gpuMode) {
                         ForEach(GPUMode.allCases) { Text($0.title).tag($0) }
                     }
-                    Toggle("Быстрый старт (сохранять состояние при выключении)", isOn: $config.fastBoot)
-                    Text("Рекомендуем: ядер не больше \(InstanceConfig.performanceCores) (производительные ядра Mac — на них игры идут ровнее), память — не больше половины ОЗУ (\(InstanceConfig.hostRAMMB / 1024) ГБ).")
+                    Toggle("Quickboot (save the state when stopping)", isOn: $config.fastBoot)
+                    Text("Recommended: no more than \(InstanceConfig.performanceCores) cores (the Mac's performance cores keep games smooth) and no more than half of the RAM (\(InstanceConfig.hostRAMMB / 1024) GB).")
                         .font(.caption).foregroundStyle(.secondary)
                 }
 
-                Section("Экран") {
-                    Picker("Разрешение", selection: $preset) {
+                Section("Screen") {
+                    Picker("Resolution", selection: $preset) {
                         ForEach(DisplayPreset.all) { Text($0.title).tag($0.id) }
-                        Text("Своё").tag("custom")
+                        Text("Custom").tag("custom")
                     }
                     .onChange(of: preset) { _, id in
                         guard let p = DisplayPreset.all.first(where: { $0.id == id }) else { return }
@@ -70,39 +95,39 @@ struct InstanceEditorView: View {
                     }
                     if preset == "custom" {
                         HStack {
-                            TextField("Ширина", value: $config.width, format: .number.grouping(.never))
+                            TextField("Width", value: $config.width, format: .number.grouping(.never))
                             Text("×")
-                            TextField("Высота", value: $config.height, format: .number.grouping(.never))
+                            TextField("Height", value: $config.height, format: .number.grouping(.never))
                             TextField("DPI", value: $config.dpi, format: .number.grouping(.never)).frame(width: 70)
                         }
                     }
-                    Picker("Частота обновления", selection: $config.refreshRate) {
-                        Text("60 Гц").tag(60)
-                        Text("90 Гц").tag(90)
-                        Text("120 Гц (ProMotion)").tag(120)
+                    Picker("Refresh rate", selection: $config.refreshRate) {
+                        Text("60 Hz").tag(60)
+                        Text("90 Hz").tag(90)
+                        Text("120 Hz (ProMotion)").tag(120)
                     }
                 }
 
-                Section("Прочее") {
-                    Toggle("Звук", isOn: $config.audioEnabled)
-                    Toggle("Микрофон", isOn: $config.microphoneEnabled)
-                    Picker("Модель устройства", selection: $config.deviceProfile) {
-                        Text("Эмулятор Android (без подмены)").tag(String?.none)
+                Section("Other") {
+                    Toggle("Sound", isOn: $config.audioEnabled)
+                    Toggle("Microphone", isOn: $config.microphoneEnabled)
+                    Picker("Device model", selection: $config.deviceProfile) {
+                        Text("Android emulator (no masking)").tag(String?.none)
                         ForEach(DeviceProfile.all) { Text($0.title).tag(Optional($0.id)) }
                     }
                     .disabled(!(image?.supportsRoot ?? false))
                     if !(image?.supportsRoot ?? false) {
-                        Text("Подмена модели работает на образах Google APIs: в образах с Google Play системные разделы закрыты. Некоторые игры не пускают на серверы устройство «Android SDK».")
+                        Text("Device masking works on Google APIs images: Google Play images keep their system partitions locked. Some games refuse “Android SDK” devices on their servers.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
-                    Toggle("Root (adb root) при запуске", isOn: $config.rootOnBoot)
+                    Toggle("Root (adb root) on start", isOn: $config.rootOnBoot)
                         .disabled(!(image?.supportsRoot ?? false))
                     if !(image?.supportsRoot ?? false) {
-                        Text("Root доступен только на образах Google APIs (без Play Маркета).")
+                        Text("Root is only available on Google APIs images (without the Play Store).")
                             .font(.caption).foregroundStyle(.secondary)
                     }
-                    Picker("Размер диска", selection: $config.dataSizeGB) {
-                        ForEach([8, 16, 32, 64, 128], id: \.self) { Text("\($0) ГБ").tag($0) }
+                    Picker("Disk size", selection: $config.dataSizeGB) {
+                        ForEach([8, 16, 32, 64, 128], id: \.self) { Text("\($0) GB").tag($0) }
                     }
                     .disabled(!isNew)
                 }
@@ -112,8 +137,8 @@ struct InstanceEditorView: View {
             HStack {
                 if let errorText { Text(errorText).foregroundStyle(.red).font(.caption) }
                 Spacer()
-                Button("Отмена") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button(isNew ? "Создать" : "Сохранить") { save() }
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button(isNew ? "Create" : "Save") { save() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(config.name.isEmpty || config.imagePath.isEmpty || config.width < 320 || config.height < 320)
             }

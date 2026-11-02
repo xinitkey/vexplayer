@@ -28,6 +28,20 @@ final class AppSettings {
     /// Type through VexIME: text follows the Mac's current input source (Russian, CJK, emoji…).
     var macInputMethod: Bool { didSet { defaults.set(macInputMethod, forKey: "macInputMethod") } }
     var extraEmulatorArgs: String { didSet { defaults.set(extraEmulatorArgs, forKey: "extraEmulatorArgs") } }
+    /// "" follows macOS; a code from `interfaceLanguages` overrides it for VexPlayer only.
+    /// macOS reads AppleLanguages from the app's own defaults domain at launch, hence the restart.
+    var interfaceLanguage: String {
+        didSet {
+            if interfaceLanguage.isEmpty {
+                defaults.removeObject(forKey: "AppleLanguages")
+            } else {
+                defaults.set([interfaceLanguage], forKey: "AppleLanguages")
+            }
+        }
+    }
+    /// The language this process started with: a different choice needs a restart.
+    let launchInterfaceLanguage: String
+    static let interfaceLanguages = ["en", "ru"]
 
     private init() {
         defaults.register(defaults: [
@@ -46,6 +60,12 @@ final class AppSettings {
         pauseWhenMinimized = defaults.bool(forKey: "pauseWhenMinimized")
         macInputMethod = defaults.bool(forKey: "macInputMethod")
         extraEmulatorArgs = defaults.string(forKey: "extraEmulatorArgs") ?? ""
+        // Only our own domain counts: `defaults.array(forKey:)` would return the system-wide list.
+        let domain = Bundle.main.bundleIdentifier.flatMap { UserDefaults.standard.persistentDomain(forName: $0) }
+        let own = (domain?["AppleLanguages"] as? [String])?.first
+        let language = own.flatMap { code in Self.interfaceLanguages.first { code.hasPrefix($0) } } ?? ""
+        interfaceLanguage = language
+        launchInterfaceLanguage = language
     }
 }
 

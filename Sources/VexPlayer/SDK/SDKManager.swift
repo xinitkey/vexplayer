@@ -11,12 +11,12 @@ struct InstallProgress: Sendable {
 
     var label: String {
         switch phase {
-        case .queued: return "В очереди"
-        case .downloading: return "Загрузка \(formatBytes(received)) из \(formatBytes(total))"
-        case .verifying: return "Проверка SHA-1…"
-        case .extracting: return "Распаковка…"
-        case .done: return "Установлено"
-        case .failed(let e): return "Ошибка: \(e)"
+        case .queued: return String(localized: "Queued")
+        case .downloading: return String(localized: "Downloading \(formatBytes(received)) of \(formatBytes(total))")
+        case .verifying: return String(localized: "Verifying SHA-1…")
+        case .extracting: return String(localized: "Unpacking…")
+        case .done: return String(localized: "Installed")
+        case .failed(let e): return String(localized: "Error: \(e)")
         }
     }
     var isActive: Bool {
@@ -28,8 +28,8 @@ enum SDKInstallError: LocalizedError {
     case checksum, emptyArchive, http(Int)
     var errorDescription: String? {
         switch self {
-        case .checksum: return "Контрольная сумма не совпала — файл повреждён"
-        case .emptyArchive: return "Архив пуст"
+        case .checksum: return String(localized: "Checksum mismatch: the file is damaged")
+        case .emptyArchive: return String(localized: "The archive is empty")
         case .http(let c): return "HTTP \(c)"
         }
     }

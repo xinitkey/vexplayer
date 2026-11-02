@@ -73,7 +73,7 @@ enum SDKRepositoryError: LocalizedError {
     case badManifest(String)
     var errorDescription: String? {
         switch self {
-        case .badManifest(let s): return "Не удалось разобрать манифест SDK: \(s)"
+        case .badManifest(let s): return String(localized: "Couldn't parse the SDK manifest: \(s)")
         }
     }
 }

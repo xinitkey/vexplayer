@@ -138,7 +138,7 @@ import Testing
         let url = try temp(#"{"controls":[{"kind":"joystick","x":0.2,"y":0.7,"keys":[13,0,1,2]}],"showHints":true,"hintOpacity":0.5}"#)
         let profile = try #require(KeymapStore.read(url))
         #expect(profile.schemes.count == 1)
-        #expect(profile.active?.name == "Схема 1")
+        #expect(profile.active?.name == "Scheme 1")
         let stick = try #require(profile.active?.keymap.controls.first)
         #expect(stick.kind == .joystick && stick.keys == [13, 0, 1, 2] && stick.radius == 0.07)
     }
@@ -152,16 +152,16 @@ import Testing
 
     @Test func profileRoundTripKeepsActiveScheme() throws {
         var profile = KeymapProfile.starter()
-        var driving = KeymapScheme(name: "Вождение")
+        var driving = KeymapScheme(name: "Driving")
         driving.keymap.controls = [KeyControl.make(.joystick, at: 0.15, 0.75)]
         profile.schemes.append(driving)
         profile.activeID = driving.id
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("vex-profile-\(UUID().uuidString).json")
         try JSONEncoder().encode(profile).write(to: url)
         let back = try #require(KeymapStore.read(url))
-        #expect(back.active?.name == "Вождение")
+        #expect(back.active?.name == "Driving")
         #expect(back.active?.keymap.controls.count == 1)
-        #expect(back.nextName() == "Схема 3")
+        #expect(back.nextName() == "Scheme 3")
     }
 }
 
@@ -196,6 +196,19 @@ import Testing
 }
 
 @Suite struct ConfigTests {
+    @Test func instancesSavedBeforeLiteStillLoad() throws {
+        var c = InstanceConfig(id: "vex_0", name: "Old", imagePath: "system-images;android-36;google_apis_playstore;arm64-v8a")
+        var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(c)) as! [String: Any]
+        json.removeValue(forKey: "lite")
+        let old = try JSONDecoder().decode(InstanceConfig.self, from: JSONSerialization.data(withJSONObject: json))
+        #expect(!old.isLite)
+
+        c.lite = true
+        let lite = try JSONDecoder().decode(InstanceConfig.self, from: JSONEncoder().encode(c))
+        #expect(lite.isLite)
+        #expect(InstanceConfig.defaultLiteRAM < InstanceConfig.defaultRAM)
+    }
+
     @Test func configIniHasPerformanceKeys() {
         let c = InstanceConfig(id: "vex_0", name: "Test", imagePath: "system-images;android-36;google_apis_playstore;arm64-v8a",
                                cpuCores: 4, ramMB: 4096, width: 1920, height: 1080, dpi: 280)

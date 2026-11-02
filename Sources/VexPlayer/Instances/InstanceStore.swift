@@ -6,8 +6,8 @@ enum InstanceError: LocalizedError {
     case running, imageMissing(String)
     var errorDescription: String? {
         switch self {
-        case .running: return "Сначала остановите инстанс"
-        case .imageMissing(let p): return "Образ не установлен: \(p)"
+        case .running: return String(localized: "Stop the instance first")
+        case .imageMissing(let p): return String(localized: "Image not installed: \(p)")
         }
     }
 }

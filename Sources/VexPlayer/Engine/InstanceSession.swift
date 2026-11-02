@@ -40,13 +40,13 @@ final class InstanceSession: Identifiable {
         }
         var label: String {
             switch self {
-            case .stopped: return "Остановлен"
-            case .starting: return "Запуск…"
-            case .booting: return "Загрузка Android…"
-            case .running: return "Работает"
-            case .stopping: return "Сохранение и остановка…"
+            case .stopped: return String(localized: "Stopped")
+            case .starting: return String(localized: "Starting…")
+            case .booting: return String(localized: "Booting Android…")
+            case .running: return String(localized: "Running")
+            case .stopping: return String(localized: "Saving and stopping…")
             case .preparing(let what): return what
-            case .failed(let e): return "Ошибка: \(e)"
+            case .failed(let e): return String(localized: "Error: \(e)")
             }
         }
     }
@@ -118,9 +118,9 @@ final class InstanceSession: Identifiable {
 
     func start() {
         guard !state.isAlive else { return }
-        guard AppPaths.emulatorBinary.fileExists else { return fail("Эмулятор не установлен") }
+        guard AppPaths.emulatorBinary.fileExists else { return fail(String(localized: "The emulator isn't installed")) }
         guard AppPaths.sdk.appendingPathComponent(config.imageDirRelative).fileExists else {
-            return fail("Образ Android не установлен")
+            return fail(String(localized: "The Android image isn't installed"))
         }
         // Regenerate config.ini every launch so tuning from newer app versions reaches old instances.
         try? config.configIni().write(to: config.avdDir.appendingPathComponent("config.ini"), atomically: true, encoding: .utf8)
@@ -174,7 +174,7 @@ final class InstanceSession: Identifiable {
         do {
             try p.run()
         } catch {
-            return fail("Не удалось запустить эмулятор: \(error.localizedDescription)")
+            return fail(String(localized: "Couldn't start the emulator: \(error.localizedDescription)"))
         }
         process = p
         runsInBackground = false
@@ -284,7 +284,7 @@ final class InstanceSession: Identifiable {
             state = .stopped
         } else {
             let tail = logLines.suffix(6).joined().trimmingCharacters(in: .whitespacesAndNewlines)
-            state = .failed("эмулятор завершился с кодом \(code). \(tail.suffix(300))")
+            state = .failed(String(localized: "the emulator exited with code \(code). \(tail.suffix(300))"))
         }
     }
 
@@ -305,7 +305,7 @@ final class InstanceSession: Identifiable {
 
     private func connectAndBoot(pid: Int32) async {
         guard let token = await discoverToken(pid: pid) else {
-            if state.isAlive { fail("gRPC не поднялся (нет файла обнаружения)") }
+            if state.isAlive { fail(String(localized: "gRPC didn't come up (no discovery file)")) }
             return
         }
         let client: EmulatorClient
@@ -466,7 +466,7 @@ final class InstanceSession: Identifiable {
         let profile = DeviceProfile.find(config.deviceProfile)
         let wanted = profile?.marker
         guard wanted != config.appliedProfileMarker, image?.supportsRoot ?? false else { return }
-        state = .preparing(profile.map { "Профиль устройства: \($0.title)…" } ?? "Снятие профиля устройства…")
+        state = .preparing(profile.map { String(localized: "Device profile: \($0.title)…") } ?? String(localized: "Removing the device profile…"))
         do {
             try await waitForADB()
             try await adb.run(["root"])
@@ -504,7 +504,7 @@ final class InstanceSession: Identifiable {
 
             let model = try await adb.shell("getprop ro.product.model").trimmingCharacters(in: .whitespacesAndNewlines)
             appendLog("Device profile applied, ro.product.model=\(model)\n")
-            if let profile, model != profile.model { throw NSError(domain: "VexPlayer", code: 3, userInfo: [NSLocalizedDescriptionKey: "модель осталась \(model)"]) }
+            if let profile, model != profile.model { throw NSError(domain: "VexPlayer", code: 3, userInfo: [NSLocalizedDescriptionKey: String(localized: "the model is still \(model)")]) }
             if let wanted {
                 try wanted.write(to: config.profileMarkerFile, atomically: true, encoding: .utf8)
             } else {
@@ -512,7 +512,7 @@ final class InstanceSession: Identifiable {
             }
         } catch {
             appendLog("Device profile failed: \(error.localizedDescription)\n")
-            showToast("Не удалось применить профиль устройства: \(error.localizedDescription)")
+            showToast(String(localized: "Couldn't apply the device profile: \(error.localizedDescription)"))
         }
         if state.isAlive, state != .stopping { state = .booting }
     }
@@ -524,7 +524,7 @@ final class InstanceSession: Identifiable {
             if let s = try? await adb.run(["get-state"]), s.contains("device") { return }
             try? await Task.sleep(for: .seconds(1))
         }
-        throw NSError(domain: "VexPlayer", code: 4, userInfo: [NSLocalizedDescriptionKey: "adb не отвечает"])
+        throw NSError(domain: "VexPlayer", code: 4, userInfo: [NSLocalizedDescriptionKey: String(localized: "adb isn't responding")])
     }
 
     private func waitForAndroidBoot(timeout: TimeInterval = 240) async throws {
@@ -535,7 +535,7 @@ final class InstanceSession: Identifiable {
             if let v = try? await adb.shell("getprop sys.boot_completed"), v.trimmingCharacters(in: .whitespacesAndNewlines) == "1" { return }
             try? await Task.sleep(for: .seconds(1))
         }
-        throw NSError(domain: "VexPlayer", code: 5, userInfo: [NSLocalizedDescriptionKey: "Android не загрузился после перезагрузки"])
+        throw NSError(domain: "VexPlayer", code: 5, userInfo: [NSLocalizedDescriptionKey: String(localized: "Android didn't boot after the restart")])
     }
 
     // MARK: Android agent (VexIME)
@@ -551,6 +551,7 @@ final class InstanceSession: Identifiable {
         }
         guard online else { return appendLog("VexIME: adb never came online\n") }
         await adb.quietSensors()
+        if config.isLite { await applyLiteEdition() }
         await installAgent(apk)
         if AppSettings.shared.macInputMethod { await connectIME() }
         await adb.resetSensorRate()
@@ -560,6 +561,19 @@ final class InstanceSession: Identifiable {
             try? await Task.sleep(for: .seconds(120))
             if !imeConnected && state == .running { await adb.resetSensorRate() }
         }
+    }
+
+    /// Disables the Lite package list once per list version; the cached-process limit is DeviceConfig
+    /// and lasts until reboot, so it is set on every boot (after quietSensors paused DeviceConfig sync).
+    private func applyLiteEdition() async {
+        _ = try? await adb.shell("device_config put activity_manager max_cached_processes \(LiteEdition.maxCachedProcesses)")
+        let marker = "lite@\(LiteEdition.version)"
+        guard (try? String(contentsOf: config.liteMarkerFile, encoding: .utf8)) != marker else { return }
+        // `cmd package` talks to the package service directly: no Java start-up per package as with `pm`.
+        let packages = LiteEdition.disabledPackages.joined(separator: " ")
+        _ = try? await adb.shell("for p in \(packages); do cmd package disable-user --user 0 $p >/dev/null 2>&1; done; true")
+        try? marker.write(to: config.liteMarkerFile, atomically: true, encoding: .utf8)
+        appendLog("Lite edition applied (\(LiteEdition.disabledPackages.count) packages disabled)\n")
     }
 
     private func installAgent(_ apk: URL) async {
@@ -706,7 +720,7 @@ final class InstanceSession: Identifiable {
     func selectScheme(_ id: UUID) {
         keymapProfile.activeID = id
         persistProfile()
-        if let name = activeScheme?.name { showToast("Схема: \(name)") }
+        if let name = activeScheme?.name { showToast(String(localized: "Scheme: \(name)")) }
     }
 
     /// New scheme, empty or a copy of the active one; becomes active.
@@ -715,7 +729,7 @@ final class InstanceSession: Identifiable {
         var scheme = KeymapScheme(name: keymapProfile.nextName())
         if copyingActive, let active = activeScheme {
             scheme.keymap = active.keymap
-            scheme.name = "\(active.name) (копия)"
+            scheme.name = String(localized: "\(active.name) (copy)")
         }
         keymapProfile.schemes.append(scheme)
         keymapProfile.activeID = scheme.id
@@ -777,18 +791,18 @@ final class InstanceSession: Identifiable {
 
     func install(_ files: [URL]) {
         for file in files {
-            showToast("Установка \(file.lastPathComponent)…")
+            showToast(String(localized: "Installing \(file.lastPathComponent)…"))
             Task {
                 do {
                     if ["apk", "apks", "xapk", "apkm"].contains(file.pathExtension.lowercased()) {
                         _ = try await adb.install(file)
-                        showToast("Установлено: \(file.lastPathComponent)")
+                        showToast(String(localized: "Installed: \(file.lastPathComponent)"))
                     } else {
                         try await adb.sendFile(file)
-                        showToast("Отправлено в Download: \(file.lastPathComponent)")
+                        showToast(String(localized: "Sent to Download: \(file.lastPathComponent)"))
                     }
                 } catch {
-                    showToast("Ошибка: \(error.localizedDescription)")
+                    showToast(String(localized: "Error: \(error.localizedDescription)"))
                 }
             }
         }
@@ -818,7 +832,7 @@ final class InstanceSession: Identifiable {
             let rep = NSBitmapImageRep(cgImage: image)
             try? rep.representation(using: .png, properties: [:])?.write(to: url)
             await MainActor.run {
-                self.showToast("Скриншот сохранён в Изображения/VexPlayer")
+                self.showToast(String(localized: "Screenshot saved to Pictures/VexPlayer"))
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.writeObjects([NSImage(cgImage: image, size: .zero)])
             }
@@ -836,14 +850,14 @@ final class InstanceSession: Identifiable {
         try? FileManager.default.createDirectory(at: AppPaths.recordings, withIntermediateDirectories: true)
         let url = AppPaths.recordings.appendingPathComponent(name)
         guard let rec = try? ScreenRecorder(url: url, width: w, height: h, rotation: geometry.rotation) else {
-            showToast("Не удалось начать запись")
+            showToast(String(localized: "Couldn't start recording"))
             return
         }
         videoRecorder = rec
         renderer.onFrameUploaded = { ptr, fw, fh in rec.append(ptr, width: fw, height: fh) }
         isRecordingVideo = true
         updateFrameStreaming()
-        showToast("Запись экрана…")
+        showToast(String(localized: "Recording the screen…"))
     }
 
     func stopVideoRecording() {
@@ -854,7 +868,7 @@ final class InstanceSession: Identifiable {
         updateFrameStreaming()
         Task {
             await rec.finish()
-            showToast("Видео сохранено в Фильмы/VexPlayer")
+            showToast(String(localized: "Video saved to Movies/VexPlayer"))
         }
     }
 }

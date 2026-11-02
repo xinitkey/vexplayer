@@ -110,7 +110,7 @@ struct KeymapEditorView: View {
     @State private var selection: UUID?
     @State private var binding: BindSlot?
     @State private var monitor: Any?
-    /// Set only by "Отменить изменения"; every other way of closing saves.
+    /// Set only by "Discard changes"; every other way of closing saves.
     @State private var discard = false
 
     init(session: InstanceSession, rect: CGRect, isPresented: Binding<Bool>) {
@@ -175,10 +175,10 @@ struct KeymapEditorView: View {
     private var toolbar: some View {
         HStack(spacing: 6) {
             schemeMenu
-            Text(session.foregroundPackage ?? "общий профиль")
+            Text(session.foregroundPackage ?? String(localized: "shared profile"))
                 .font(.caption2.monospaced()).lineLimit(1).foregroundStyle(.secondary)
                 .frame(maxWidth: 150, alignment: .leading)
-                .help("Схемы хранятся отдельно для каждой игры")
+                .help("Every game keeps its own schemes")
             Divider().frame(height: 18)
             ForEach(KeyControlKind.allCases) { kind in
                 Button {
@@ -190,27 +190,27 @@ struct KeymapEditorView: View {
                 } label: {
                     Label(kind.title, systemImage: kind.symbol).labelStyle(.iconOnly)
                 }
-                .help("Добавить: \(kind.title)")
+                .help("Add: \(kind.title)")
             }
             Button(role: .destructive) {
                 map.controls.removeAll()
                 selection = nil
             } label: {
-                Label("Очистить", systemImage: "trash").labelStyle(.iconOnly)
+                Label("Clear", systemImage: "trash").labelStyle(.iconOnly)
             }
-            .help("Убрать все элементы из схемы")
+            .help("Remove every control from the scheme")
             .disabled(map.controls.isEmpty)
             Divider().frame(height: 18)
-            Toggle("Подсказки", isOn: $map.showHints).toggleStyle(.checkbox)
-            Slider(value: $map.hintOpacity, in: 0.15...1).frame(width: 70).help("Прозрачность подсказок")
+            Toggle("Hints", isOn: $map.showHints).toggleStyle(.checkbox)
+            Slider(value: $map.hintOpacity, in: 0.15...1).frame(width: 70).help("Hint opacity")
             Divider().frame(height: 18)
-            Button("Отменить изменения") {
+            Button("Discard changes") {
                 discard = true
                 isPresented = false
             }
-            Button("Готово") { isPresented = false }
+            Button("Done") { isPresented = false }
                 .keyboardShortcut(.defaultAction)
-                .help("Сохраняется автоматически при закрытии редактора")
+                .help("Saved automatically when the editor closes")
         }
         .controlSize(.small)
         .padding(.horizontal, 10).padding(.vertical, 6)
@@ -234,19 +234,19 @@ struct KeymapEditorView: View {
                 }
             }
             Divider()
-            Button("Новая пустая схема") { newScheme(copy: false) }
-            Button("Копия текущей схемы") { newScheme(copy: true) }
-            Button("Переименовать…") { renameActive() }
-            Button("Удалить схему…", role: .destructive) { deleteActive() }
+            Button("New empty scheme") { newScheme(copy: false) }
+            Button("Copy of the current scheme") { newScheme(copy: true) }
+            Button("Rename…") { renameActive() }
+            Button("Delete scheme…", role: .destructive) { deleteActive() }
                 .disabled(session.keymapProfile.schemes.count < 2)
             Divider()
-            Button("Экспорт схемы…") { exportActive() }
-            Button("Импорт схемы…") { importScheme() }
+            Button("Export scheme…") { exportActive() }
+            Button("Import scheme…") { importScheme() }
         } label: {
-            Label(session.activeScheme?.name ?? "Схема", systemImage: "list.bullet.rectangle")
+            Label(session.activeScheme?.name ?? String(localized: "Scheme"), systemImage: "list.bullet.rectangle")
         }
         .fixedSize()
-        .help("Схемы управления этой игры")
+        .help("Control schemes of this game")
     }
 
     /// Keep edits of the scheme we leave, then load the other one.
@@ -268,9 +268,9 @@ struct KeymapEditorView: View {
     private func renameActive() {
         guard let scheme = session.activeScheme else { return }
         let alert = NSAlert()
-        alert.messageText = "Название схемы"
-        alert.addButton(withTitle: "Сохранить")
-        alert.addButton(withTitle: "Отмена")
+        alert.messageText = String(localized: "Scheme name")
+        alert.addButton(withTitle: String(localized: "Save"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
         let field = NSTextField(string: scheme.name)
         field.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
         alert.accessoryView = field
@@ -284,10 +284,10 @@ struct KeymapEditorView: View {
     private func deleteActive() {
         guard let scheme = session.activeScheme else { return }
         let alert = NSAlert()
-        alert.messageText = "Удалить схему «\(scheme.name)»?"
+        alert.messageText = String(localized: "Delete the scheme “\(scheme.name)”?")
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "Удалить")
-        alert.addButton(withTitle: "Отмена")
+        alert.addButton(withTitle: String(localized: "Delete"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         session.deleteScheme(scheme.id)
         map = session.keymap
@@ -315,7 +315,7 @@ struct KeymapEditorView: View {
             map = session.keymap
             selection = nil
         } catch {
-            session.showToast("Не удалось импортировать: \(error.localizedDescription)")
+            session.showToast(String(localized: "Couldn't import: \(error.localizedDescription)"))
         }
     }
 
@@ -330,7 +330,7 @@ struct KeymapEditorView: View {
                     map.controls.removeAll { $0.id == c.wrappedValue.id }
                     selection = nil
                 } label: { Image(systemName: "trash") }
-                .help("Удалить (⌫)")
+                .help("Delete (⌫)")
             }
             switch c.wrappedValue.kind {
             case .joystick:
@@ -340,24 +340,24 @@ struct KeymapEditorView: View {
                                    value: c.wrappedValue.keys.indices.contains(i) ? c.wrappedValue.keys[i] : nil)
                     }
                 }
-                slider("Ход стика", c.radius, 0.02...0.2)
+                slider("Stick travel", c.radius, 0.02...0.2)
             case .aim:
-                bindRow(c, title: "Клавиша захвата курсора")
-                slider("Чувствительность", c.sensitivity, 0.2...4)
-                slider("Зона обзора", c.radius, 0.04...0.35)
+                bindRow(c, title: "Cursor lock key")
+                slider("Sensitivity", c.sensitivity, 0.2...4)
+                slider("Look area", c.radius, 0.04...0.35)
             case .skill:
-                bindRow(c, title: "Клавиша")
-                slider("Дальность", c.radius, 0.03...0.25)
+                bindRow(c, title: "Key")
+                slider("Range", c.radius, 0.03...0.25)
             case .repeatTap:
-                bindRow(c, title: "Клавиша")
-                Stepper("Интервал: \(c.wrappedValue.intervalMS) мс", value: c.intervalMS, in: 20...1000, step: 10)
+                bindRow(c, title: "Key")
+                Stepper("Interval: \(String(c.wrappedValue.intervalMS)) ms", value: c.intervalMS, in: 20...1000, step: 10)
             case .fire:
-                bindRow(c, title: "Клавиша (ЛКМ — при захвате курсора)")
+                bindRow(c, title: "Key (left click while the cursor is locked)")
             case .swipe:
-                bindRow(c, title: "Клавиша")
-                Text("Перетащите синюю точку — конец свайпа").font(.caption).foregroundStyle(.secondary)
+                bindRow(c, title: "Key")
+                Text("Drag the blue dot to set where the swipe ends").font(.caption).foregroundStyle(.secondary)
             case .tap:
-                bindRow(c, title: "Клавиша")
+                bindRow(c, title: "Key")
             }
         }
         .padding(12)
@@ -367,25 +367,25 @@ struct KeymapEditorView: View {
         .controlSize(.small)
     }
 
-    private func slider(_ title: String, _ value: Binding<Double>, _ range: ClosedRange<Double>) -> some View {
+    private func slider(_ title: LocalizedStringKey, _ value: Binding<Double>, _ range: ClosedRange<Double>) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title).font(.caption).foregroundStyle(.secondary)
             Slider(value: value, in: range)
         }
     }
 
-    private func bindRow(_ c: Binding<KeyControl>, title: String) -> some View {
+    private func bindRow(_ c: Binding<KeyControl>, title: LocalizedStringKey) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title).font(.caption).foregroundStyle(.secondary)
             HStack {
                 bindButton(.primary(c.wrappedValue.id), label: nil, value: c.wrappedValue.key)
-                Menu("Мышь / геймпад") {
-                    Button("Левая кнопка мыши") { c.wrappedValue.key = KeyCode.mouseLeft }
-                    Button("Правая кнопка мыши") { c.wrappedValue.key = KeyCode.mouseRight }
-                    Button("Средняя кнопка мыши") { c.wrappedValue.key = KeyCode.mouseMiddle }
+                Menu("Mouse / gamepad") {
+                    Button("Left mouse button") { c.wrappedValue.key = KeyCode.mouseLeft }
+                    Button("Right mouse button") { c.wrappedValue.key = KeyCode.mouseRight }
+                    Button("Middle mouse button") { c.wrappedValue.key = KeyCode.mouseMiddle }
                     Divider()
                     ForEach(GamepadButton.allCases, id: \.rawValue) { b in
-                        Button("Геймпад \(b.label)") { c.wrappedValue.key = KeyCode.gamepadBase + b.rawValue }
+                        Button("Gamepad \(b.label)") { c.wrappedValue.key = KeyCode.gamepadBase + b.rawValue }
                     }
                 }
                 .fixedSize()
@@ -398,7 +398,7 @@ struct KeymapEditorView: View {
         return Button {
             binding = waiting ? nil : slot
         } label: {
-            Text(waiting ? "Нажмите…" : [label, value.map(KeyCode.name)].compactMap { $0 }.joined(separator: " "))
+            Text(waiting ? String(localized: "Press a key…") : [label, value.map(KeyCode.name)].compactMap { $0 }.joined(separator: " "))
                 .frame(minWidth: 44)
         }
         .tint(waiting ? .accentColor : nil)
