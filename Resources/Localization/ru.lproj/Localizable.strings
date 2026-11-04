@@ -19,6 +19,7 @@
 "All images are native ARM64: on Apple Silicon they run without instruction translation." = "Все образы — нативные ARM64: на Apple Silicon они работают без трансляции инструкций.";
 "Almaty" = "Алматы";
 "Android 14 and older can't draw through Vulkan on a Mac, so this instance uses OpenGL (GLES 3.0)." = "Android 14 и более ранние версии не умеют рисовать через Vulkan на Mac, поэтому этот инстанс работает через OpenGL (GLES 3.0).";
+"The emulator can't restore a Vulkan screen from a snapshot (the picture freezes), so this instance always does a full boot: 10–30 s." = "Эмулятор не умеет восстанавливать экран Vulkan из снимка (картинка зависает), поэтому этот инстанс всегда загружается полностью: 10–30 с.";
 "Android didn't boot after the restart" = "Android не загрузился после перезагрузки";
 "Android emulator (no masking)" = "Эмулятор Android (без подмены)";
 "Android for Apple Silicon: native ARM64 without translation, Hypervisor.framework and GPU through Metal." = "Android для Apple Silicon: нативный ARM64 без трансляции, Hypervisor.framework и GPU через Metal.";

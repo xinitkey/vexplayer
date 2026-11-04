@@ -257,7 +257,7 @@ import Testing
         for line in ["image.sysdir.1=system-images/android-36/google_apis_playstore/arm64-v8a/", "hw.cpu.ncore=4",
                      "hw.ramSize=4096", "hw.gpu.mode=host", "PlayStore.enabled=true", "hw.initialOrientation=landscape",
                      "hw.lcd.width=1920", "hw.lcd.height=1080", "hw.keyboard=yes",
-                     "fastboot.forceFastBoot=yes"] {
+                     "fastboot.forceFastBoot=no"] {   // Vulkan: always a cold boot
             #expect(ini.contains(line + "\n"), "\(line)")
         }
         #expect(c.platform == "android-36")
@@ -281,6 +281,21 @@ import Testing
         #expect(config("android-33", .swiftshader).effectiveGPUMode == .swiftshader)
         #expect(config("android-\(GPUMode.minGuestAngleAPI)").effectiveGPUMode == .angleVulkan)
         #expect(config("android-37").effectiveGPUMode == .angleVulkan)
+    }
+
+    /// Vulkan guests freeze after a Quickboot restore, so they boot cold whatever the toggle says.
+    @Test func quickbootOnlyWhereItRestores() {
+        func config(_ platform: String, _ mode: GPUMode = .angleVulkan, fastBoot: Bool = true) -> InstanceConfig {
+            var c = InstanceConfig(id: "vex_0", name: "Test", imagePath: "system-images;\(platform);google_apis;arm64-v8a")
+            c.gpuMode = mode
+            c.fastBoot = fastBoot
+            return c
+        }
+        #expect(!config("android-36").quickboot)
+        #expect(config("android-36", .host).quickboot)
+        #expect(config("android-33").quickboot)   // falls back to OpenGL
+        #expect(!config("android-33", fastBoot: false).quickboot)
+        #expect(config("android-36").configIni().contains("fastboot.forceColdBoot=yes"))
     }
 
     @Test func revisionsCompareNumerically() {

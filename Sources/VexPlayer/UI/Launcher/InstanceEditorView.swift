@@ -87,7 +87,13 @@ struct InstanceEditorView: View {
                         Text("Android 14 and older can't draw through Vulkan on a Mac, so this instance uses OpenGL (GLES 3.0).")
                             .font(.caption).foregroundStyle(.secondary)
                     }
-                    Toggle("Quickboot (save the state when stopping)", isOn: $config.fastBoot)
+                    if config.effectiveGPUMode.supportsQuickboot {
+                        Toggle("Quickboot (save the state when stopping)", isOn: $config.fastBoot)
+                    } else {
+                        Toggle("Quickboot (save the state when stopping)", isOn: .constant(false)).disabled(true)
+                        Text("The emulator can't restore a Vulkan screen from a snapshot (the picture freezes), so this instance always does a full boot: 10–30 s.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     Text("Recommended: no more than \(InstanceConfig.performanceCores) cores (the Mac's performance cores keep games smooth) and no more than half of the RAM (\(InstanceConfig.hostRAMMB / 1024) GB).")
                         .font(.caption).foregroundStyle(.secondary)
                 }

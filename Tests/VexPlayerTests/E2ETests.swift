@@ -155,7 +155,7 @@ struct E2ETests {
         let quick = Date().timeIntervalSince(t0)
         log("boot #2 (quickboot): \(String(format: "%.1f", quick)) s")
         #expect(session.state == .running)
-        if config.fastBoot && !leavingNetsim { #expect(quick < 10) }
+        if config.quickboot && !leavingNetsim { #expect(quick < 10) }
 
         session.stop()
         _ = await waitUntil(120) { !session.state.isAlive }

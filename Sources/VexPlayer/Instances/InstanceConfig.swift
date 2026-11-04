@@ -25,6 +25,11 @@ enum GPUMode: String, Codable, CaseIterable, Identifiable, Sendable {
     var features: [String] {
         self == .angleVulkan ? ["GuestAngle", "VulkanSnapshots", "-HostComposition", "-VulkanQueueSubmitWithCommands"] : []
     }
+    /// A Vulkan guest doesn't come back from Quickboot with these features: the restored command buffers are
+    /// outside a recording state, every submit fails with VK_NOT_READY and the picture freezes (any Android 16
+    /// instance, open apps or not), and freeing those objects later crashes the emulator in MoltenVK. The
+    /// VulkanQueueSubmitWithCommands path restores fine but busy-waits (above), so these instances boot cold.
+    var supportsQuickboot: Bool { self != .angleVulkan }
     /// Older images ship a guest ANGLE that MoltenVK can't run, so they use OpenGL instead. Android 13 asks
     /// for a Vulkan extension MoltenVK lacks: SurfaceFlinger aborts ("no suitable EGLConfig found") and
     /// Android boot-loops. Android 14 boots, but Metal rejects its text pipelines (uint vertex attributes
@@ -103,6 +108,8 @@ struct InstanceConfig: Codable, Identifiable, Hashable, Sendable {
     var effectiveGPUMode: GPUMode {
         gpuMode == .angleVulkan && apiLevel < GPUMode.minGuestAngleAPI ? .host : gpuMode
     }
+    /// Quickboot as it actually runs: the user's choice, unless the graphics mode can't be restored.
+    var quickboot: Bool { fastBoot && effectiveGPUMode.supportsQuickboot }
 
     var avdDir: URL { AppPaths.avdHome.appendingPathComponent("\(id).avd", isDirectory: true) }
     /// Which profile is currently written into the instance's build.prop files.
@@ -186,8 +193,8 @@ struct InstanceConfig: Codable, Identifiable, Hashable, Sendable {
             ("hw.camera.front", "none"),
             ("hw.arc", "false"),
             ("disk.dataPartition.size", "\(dataSizeGB)G"),
-            ("fastboot.forceColdBoot", fastBoot ? "no" : "yes"),
-            ("fastboot.forceFastBoot", fastBoot ? "yes" : "no"),
+            ("fastboot.forceColdBoot", quickboot ? "no" : "yes"),
+            ("fastboot.forceFastBoot", quickboot ? "yes" : "no"),
             ("showDeviceFrame", "no"),
             ("skin.dynamic", "yes"),
             ("skin.name", "\(width)x\(height)"),

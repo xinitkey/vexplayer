@@ -30,32 +30,17 @@ Gaming emulators like MuMuPlayer made Android games feel at home on a desktop, b
 - **Free and open.** Apache 2.0. Fork it, ship your own build, make it better.
 
 > [!NOTE]
-> **Status: 0.1, early preview.** The full end-to-end test passes on a live Android 16 device (boot, frames, touch, keyboard, Cyrillic text, rotation, Quickboot). Expect rough edges. The interface is in English and Russian and follows your macOS language.
+> **Status: 0.1, early preview.** The full end-to-end test passes on a live Android 16 device (boot, frames, touch, keyboard, Cyrillic text, rotation, restart). Expect rough edges. The interface is in English and Russian and follows your macOS language.
 
 ## Highlights
-
-<table>
-<tr>
-<td width="50%" valign="top">
-
-### ⚡ Boots in about 5 seconds
-
-Quickboot saves the whole VM to a RAM snapshot when you stop an instance, so the next start skips the Android boot entirely.
-
-<img src="docs/media/quickboot.gif" alt="Quickboot: an instance resuming from a snapshot" width="100%">
-
-</td>
-<td width="50%" valign="top">
 
 ### 🔄 Follows the device orientation
 
 When a game switches to landscape, the window rotates and resizes with it. Rotation is applied in the shader, with no extra copy.
 
-<img src="docs/media/auto-rotate.gif" alt="The player window rotating with the Android screen" width="100%">
-
-</td>
-</tr>
-</table>
+<p align="center">
+<img src="docs/media/auto-rotate.gif" alt="The player window rotating with the Android screen" width="640">
+</p>
 
 ### 🎮 Key mapping built for games
 
@@ -100,7 +85,8 @@ Measured on a MacBook with an Apple M5 and 16 GB of RAM, running Android 16:
 | Benchmark | VexPlayer | Stock emulator settings |
 |---|---:|---:|
 | First boot of a new instance | ~40 s | — |
-| Start from a Quickboot snapshot | **~5 s** | — |
+| Start of a stopped Android 16 instance | 10–30 s | — |
+| Start from a Quickboot snapshot (Android 11–14) | **~5 s** | — |
 | Launcher scrolling, median frame time | **7 ms** | 17 ms |
 | GPU time per frame, 90th percentile | **2 ms** | 21 ms |
 | Janky frames | **2.7 %** | 10.9 % |
@@ -126,7 +112,7 @@ Where the speed comes from:
 | Android 11–17, Google Play or Google APIs images | ✅ |
 | Lite edition of every image: no Google apps a game doesn't need, 1 GB less RAM; Minimal goes further, without Google Play services | ✅ |
 | Multi-instance: create, clone, wipe, delete, batch start, tile windows in a grid | ✅ |
-| Quickboot snapshots (~5 s start) | ✅ |
+| Quickboot snapshots (~5 s start) on Android 11–14; Android 15+ boots cold, see [Quickboot](#quickboot) | ✅ |
 | Hidden instances on efficiency cores, optional pause when minimized | ✅ |
 | Key mapping: tap, auto-tap, joystick, mouse look with cursor lock, fire, swipe, skill | ✅ |
 | Per-game profiles (picked by the foreground app) with several schemes each | ✅ |
@@ -165,7 +151,7 @@ On first launch:
 
 1. Choose an Android version. *Google Play* images include the Play Store; *Google APIs* images have no Play Store but allow root and device model profiles. Every image can also be created as a *Lite* or *Minimal* instance (see [Lite edition](#lite-edition) and [Minimal edition](#minimal-edition)).
 2. Read and accept the Android SDK license. VexPlayer downloads about 2.3 GB from `dl.google.com`.
-3. Click the play button next to the new instance. The first boot takes around 40 seconds; after that, Quickboot brings it back in about 5.
+3. Click the play button next to the new instance. The first boot takes around 40 seconds, later ones 10–30 (Android 11–14 come back from Quickboot in about 5).
 
 Everything VexPlayer downloads or creates lives in `~/Library/Application Support/VexPlayer`. It uses its own `adb` server port (5039), so it doesn't fight with Android Studio.
 
@@ -223,6 +209,12 @@ Physical keys and text are handled differently, the same way they are on a phone
 - **In a text field**, keystrokes go through the macOS text input system first. Whatever input source you have selected (Russian, Ukrainian, Pinyin, Japanese, emoji picker, dead keys) is what you type, and switching it on the Mac takes effect immediately. The composed text is committed by **VexIME**, a tiny Android input method (`android/vexime`, about 13 KB) that VexPlayer installs and enables automatically.
 
 VexIME also tells the Mac side when a text field gains focus, which is how key mapping knows to step aside while you type.
+
+## Quickboot
+
+Quickboot saves the whole VM to a RAM snapshot when you stop an instance, so the next start skips the Android boot and takes about 5 seconds. Before the snapshot is saved, VexPlayer goes to the home screen and closes open apps: a 3D game's GPU state doesn't survive a restore.
+
+It works on instances drawn through OpenGL (Android 11–14). Android 15 and newer draw through Vulkan, and the emulator can't bring a Vulkan screen back from a snapshot: every frame fails with `VK_NOT_READY`, the picture freezes, and the emulator crashes once the affected app closes. The emulator's other Vulkan submit path does restore correctly, but it keeps several Mac cores busy while Android idles. So these instances always boot cold, in 10–30 seconds, and the Quickboot switch is off for them. If a restore ever does come back broken, VexPlayer notices and restarts the instance with a cold boot on its own.
 
 ## Lite edition
 
@@ -325,7 +317,7 @@ JAVA_HOME=/path/to/jdk BUILD_TOOLS=/path/to/build-tools/36.1.0 \
 ANDROID_JAR=/path/to/platforms/android-36/android.jar scripts/build-ime.sh
 ```
 
-The end-to-end test boots a real instance and checks frames, touch input, the hidden-window pause, the VexIME connection, typing Cyrillic text into the launcher search, rotation and a Quickboot restart.
+The end-to-end test boots a real instance and checks frames, touch input, the hidden-window pause, the VexIME connection, typing Cyrillic text into the launcher search, rotation and a restart.
 
 ## Limitations
 

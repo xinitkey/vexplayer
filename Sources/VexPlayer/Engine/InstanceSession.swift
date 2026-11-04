@@ -97,6 +97,8 @@ final class InstanceSession: Identifiable {
     @ObservationIgnored private var displayVisible = true
     @ObservationIgnored private var sensorResetTask: Task<Void, Never>?
     @ObservationIgnored private var runsInBackground = false
+    /// Boot finished and Android had half a minute to settle; only then may a hidden instance go to the background.
+    @ObservationIgnored private var settled = false
     @ObservationIgnored private var vmPaused = false
     @ObservationIgnored private var pauseTask: Task<Void, Never>?
     @ObservationIgnored private var policyObserver: NSObjectProtocol?
@@ -134,7 +136,9 @@ final class InstanceSession: Identifiable {
 
     // MARK: Lifecycle
 
-    func start() {
+    /// `continuingLog` appends to the current log (a restart VexPlayer does by itself) instead of starting a new one;
+    /// `discardingSnapshot` drops the Quickboot snapshot first, giving the reason in the log.
+    func start(continuingLog: Bool = false, discardingSnapshot reason: String? = nil) {
         guard !state.isAlive else { return }
         guard AppPaths.emulatorBinary.fileExists else { return fail(String(localized: "The emulator isn't installed")) }
         guard AppPaths.sdk.appendingPathComponent(config.imageDirRelative).fileExists else {
@@ -142,12 +146,24 @@ final class InstanceSession: Identifiable {
         }
         // Regenerate config.ini every launch so tuning from newer app versions reaches old instances.
         try? config.configIni().write(to: config.avdDir.appendingPathComponent("config.ini"), atomically: true, encoding: .utf8)
-        discardBrokenSnapshot()
         state = .starting
         logLines = []
+        restoredSnapshot = false
+        coldRestartPending = false
         let logURL = AppPaths.logs.appendingPathComponent("\(config.id).log")
-        FileManager.default.createFile(atPath: logURL.path, contents: nil)
-        logFile = try? FileHandle(forWritingTo: logURL)
+        if continuingLog, let handle = try? FileHandle(forWritingTo: logURL) {
+            handle.seekToEndOfFile()
+            logFile = handle
+        } else {
+            // Keep the last run's log: after a crash the user usually starts again before anyone looks at it.
+            let previousLog = AppPaths.logs.appendingPathComponent("\(config.id).prev.log")
+            try? FileManager.default.removeItem(at: previousLog)
+            try? FileManager.default.moveItem(at: logURL, to: previousLog)
+            FileManager.default.createFile(atPath: logURL.path, contents: nil)
+            logFile = try? FileHandle(forWritingTo: logURL)
+        }
+        if let reason { discardSnapshot(reason) }
+        discardBrokenSnapshot()
         bootSeconds = nil
         startTime = Date()
         geometry = DisplayGeometry(fbWidth: config.width, fbHeight: config.height)
@@ -197,6 +213,7 @@ final class InstanceSession: Identifiable {
         }
         process = p
         runsInBackground = false
+        settled = false
         updateProcessPriority()
         activity = ProcessInfo.processInfo.beginActivity(
             options: [.userInitiated, .latencyCritical], reason: "Android instance \(config.name)")
@@ -232,9 +249,10 @@ final class InstanceSession: Identifiable {
         args += settings.hiddenQtWindow ? ["-qt-hide-window"] : ["-no-window"]
         if !features.isEmpty { args += ["-feature", features.joined(separator: ",")] }
         if !config.audioEnabled { args.append("-no-audio") }
-        if !config.fastBoot { args.append("-no-snapshot-save") }
+        if !config.quickboot { args.append("-no-snapshot-save") }
         // A snapshot taken under other GPU features would restore a guest driver that no longer matches.
-        if (try? String(contentsOf: launchSignatureFile, encoding: .utf8)) != launchSignature {
+        if !config.effectiveGPUMode.supportsQuickboot
+            || (try? String(contentsOf: launchSignatureFile, encoding: .utf8)) != launchSignature {
             args.append("-no-snapshot-load")
         }
         if config.needsWritableSystem { args.append("-writable-system") }
@@ -243,7 +261,8 @@ final class InstanceSession: Identifiable {
     }
 
     /// Graceful stop: SIGINT makes the emulator save its Quickboot snapshot, so the next start takes seconds.
-    func stop() {
+    /// `closeApps: false` leaves Android's apps alone (used when their GPU state is already broken).
+    func stop(closeApps: Bool = true) {
         if process == nil, state == .starting {
             tasks.forEach { $0.cancel() }
             tasks.removeAll()
@@ -259,11 +278,13 @@ final class InstanceSession: Identifiable {
         pauseTask?.cancel()
         let resume = vmPaused ? client : nil
         vmPaused = false
-        stopSavesSnapshot = wasRunning && config.fastBoot
+        stopSavesSnapshot = wasRunning && config.quickboot
         snapshotSaved = false
+        let closesApps = closeApps && stopSavesSnapshot
         Task {
             // Quickboot saves a running VM, and a paused one can't sync: wake it first.
             if let resume { try? await resume.setVMState(.running) }
+            if closesApps { await closeAppsForSnapshot() }
             if wasRunning { await syncGuestDisks() }
             p.interrupt()
         }
@@ -281,6 +302,9 @@ final class InstanceSession: Identifiable {
     /// Set by stop() when the emulator is expected to save Quickboot on exit, and by the log line that says it did.
     private var stopSavesSnapshot = false
     private var snapshotSaved = false
+    /// This run came from a Quickboot snapshot / a cold restart after a broken restore is under way.
+    private var restoredSnapshot = false
+    private var coldRestartPending = false
 
     /// A Quickboot save cut off by a kill leaves an empty or partial RAM image next to disk snapshots. The emulator
     /// may still try to restore it, so drop it and let the next start boot cold from the disks.
@@ -292,6 +316,8 @@ final class InstanceSession: Identifiable {
     }
 
     private func discardBrokenSnapshot() {
+        // A Vulkan instance never loads one (see GPUMode.supportsQuickboot); it only takes disk space.
+        if !config.effectiveGPUMode.supportsQuickboot { return discardSnapshot("Quickboot is off with Vulkan graphics") }
         let ram = config.quickbootSnapshotDir.appendingPathComponent("ram.bin")
         let size = (try? FileManager.default.attributesOfItem(atPath: ram.path)[.size] as? Int) ?? nil
         if size == 0 { discardSnapshot("empty RAM image") }
@@ -302,14 +328,54 @@ final class InstanceSession: Identifiable {
     /// without the last seconds of changes, a just-installed app included. Waits at most 10 s, so a hung
     /// Android can't hold up the stop.
     private func syncGuestDisks() async {
-        let adb = adb
-        let done = OSAllocatedUnfairLock(initialState: false)
-        Task.detached {
-            _ = try? await adb.shell("sync")
-            done.withLock { $0 = true }
+        await shellBounded("sync", seconds: 10)
+    }
+
+    /// Quickboot can't bring back the GPU state of a running 3D app: a game restored mid-session got VK_NOT_READY on
+    /// every frame (a frozen picture), and freeing its dead Vulkan objects later crashed the emulator in MoltenVK.
+    /// So the apps are closed before a save: HOME first, so they save their state the usual way, then every
+    /// third-party app and whatever else is in front. The snapshot keeps only the system UI; an online game has to
+    /// reconnect after a restore anyway.
+    private func closeAppsForSnapshot() async {
+        let script = "input keyevent HOME; sleep 1; "
+            + "fg=$(dumpsys activity activities 2>/dev/null | grep -m1 topResumedActivity | sed -E 's#.* ([^ /]+)/.*#\\1#'); "
+            + "for p in $(pm list packages -3 | cut -d: -f2) $fg; do case $p in "
+            + "\(ImeBridge.package)|*launcher*|com.android.systemui) ;; "
+            + "*) pidof $p >/dev/null && am force-stop $p && echo $p ;; esac; done"
+        let closed = await shellBounded(script, seconds: 10)
+        if !closed.isEmpty {
+            appendLog("Closed before the Quickboot save: \(closed.split(separator: "\n").joined(separator: ", "))\n")
+            // Give the renderer a moment to free their GPU objects before the RAM is saved.
+            try? await Task.sleep(for: .seconds(1))
         }
-        for _ in 0..<40 where !done.withLock({ $0 }) {
+    }
+
+    /// Runs a guest shell command but waits at most `seconds`, so a hung Android can't hold up a stop.
+    @discardableResult
+    private func shellBounded(_ command: String, seconds: Double) async -> String {
+        let adb = adb
+        let result = OSAllocatedUnfairLock<String?>(initialState: nil)
+        Task.detached {
+            let out = (try? await adb.shell(command)) ?? ""
+            result.withLock { $0 = out }
+        }
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if let out = result.withLock({ $0 }) { return out.trimmingCharacters(in: .whitespacesAndNewlines) }
             try? await Task.sleep(for: .milliseconds(250))
+        }
+        return ""
+    }
+
+    /// A Quickboot restore whose GPU state didn't come back (VK_NOT_READY from the renderer) leaves a frozen
+    /// picture and crashes the emulator once the affected app exits. Stop without touching the apps, drop the
+    /// snapshot and boot cold: about a minute instead of a dead window.
+    private func restartColdAfterBrokenRestore() {
+        appendLog("Quickboot restore lost the GPU state of running apps; restarting with a cold boot\n")
+        Task {
+            stop(closeApps: false)
+            while state.isAlive { try? await Task.sleep(for: .milliseconds(200)) }
+            start(continuingLog: true, discardingSnapshot: "its GPU state can't be restored")
         }
     }
 
@@ -365,6 +431,12 @@ final class InstanceSession: Identifiable {
         logFile?.write(Data(text.utf8))
         for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
             if stopSavesSnapshot && line.contains("Saving snapshot") && line.contains(" took ") { snapshotSaved = true }
+            if line.contains("Successfully loaded snapshot") { restoredSnapshot = true }
+            if restoredSnapshot && !coldRestartPending && state.isAlive && state != .stopping
+                && line.contains("VK_NOT_READY") {
+                coldRestartPending = true
+                restartColdAfterBrokenRestore()
+            }
             logLines.append(String(line) + "\n")
         }
         if logLines.count > 600 { logLines.removeFirst(logLines.count - 600) }
@@ -408,6 +480,13 @@ final class InstanceSession: Identifiable {
         }
         tasks.append(Task { await self.watchDisplayState() })
         tasks.append(Task { await self.setupAgent() })
+        tasks.append(Task {
+            // Android keeps starting services for a while after boot_completed.
+            try? await Task.sleep(for: .seconds(30))
+            guard !Task.isCancelled else { return }
+            self.settled = true
+            self.updateProcessPriority()
+        })
     }
 
     private func discoverToken(pid: Int32) async -> String? {
@@ -503,10 +582,12 @@ final class InstanceSession: Identifiable {
     }
 
     /// An instance nobody looks at keeps running, but at background priority: macOS moves it to the
-    /// efficiency cores and gives the user's own apps the performance cores first.
+    /// efficiency cores and gives the user's own apps the performance cores first. Not while Android boots:
+    /// two hidden instances booting at once on efficiency cores took a minute and left ANR dialogs behind
+    /// (System UI, the phone service), and a game started then failed to load.
     private func updateProcessPriority() {
         guard let p = process, p.isRunning else { return }
-        let background = AppSettings.shared.backgroundWhenHidden && !isWatched
+        let background = AppSettings.shared.backgroundWhenHidden && !isWatched && settled
         guard background != runsInBackground else { return }
         runsInBackground = background
         setpriority(PRIO_DARWIN_PROCESS, id_t(p.processIdentifier), background ? PRIO_DARWIN_BG : 0)
