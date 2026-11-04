@@ -62,8 +62,14 @@ enum AppPaths {
         env["ANDROID_AVD_HOME"] = avdHome.path
         env["ANDROID_ADB_SERVER_PORT"] = String(adbServerPort)
         env["ANDROID_EMU_ENABLE_CRASH_REPORTING"] = "0"
+        // On SIGINT the emulator launcher kills qemu after 20 s by default, cutting off a Quickboot save of a big
+        // guest (7–13 s, more with two instances running) and leaving an empty ram.bin behind.
+        env["ANDROID_EMULATOR_WAIT_TIME_BEFORE_KILL"] = String(Int(emulatorStopTimeout))
         return env
     }
+
+    /// How long a graceful stop may take (sync, Quickboot save, exit) before the emulator is killed.
+    static let emulatorStopTimeout: TimeInterval = 120
 }
 
 extension URL {

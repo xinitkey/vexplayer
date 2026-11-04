@@ -11,8 +11,8 @@ final class ScreenView: NSView {
     /// Keys whose keyDown went through the Mac text system; their keyUp must not reach Android.
     private var textRoutedKeys = Set<UInt16>()
 
-    /// An Android text field has focus and VexIME is connected: type with the Mac's input source.
-    private var textMode: Bool { session.imeConnected && session.textFieldFocused }
+    /// Android wants text (see InstanceSession.typing) and VexIME is connected: type with the Mac's input source.
+    private var textMode: Bool { session.imeConnected && session.typing }
 
     private var input: InputController { session.input }
     private var metalLayer: CAMetalLayer { layer as! CAMetalLayer }

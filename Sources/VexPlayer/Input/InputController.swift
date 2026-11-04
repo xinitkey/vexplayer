@@ -10,6 +10,7 @@ final class InputController {
 
     var keymapEnabled = true
     var textFieldFocused = false
+    var keyboardRequested = false
     /// True while the keymap editor is open: input must not reach Android.
     var suspended = false
     /// Mouse wheel direction: Android scrolls content up for positive dy.
@@ -26,7 +27,8 @@ final class InputController {
         engine.emit = { [weak self] touches in self?.sendTouches(touches) }
     }
 
-    var keymapActive: Bool { keymapEnabled && !textFieldFocused && !engine.isEmpty }
+    /// Off while the app has a keyboard open (InstanceSession.typing); a merely focused field doesn't count.
+    var keymapActive: Bool { keymapEnabled && !(textFieldFocused && keyboardRequested) && !engine.isEmpty }
 
     // MARK: Output
 

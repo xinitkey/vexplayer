@@ -16,7 +16,7 @@ struct PlayerView: View {
                     if ui.editingKeymap {
                         KeymapEditorView(session: session, rect: rect, isPresented: $ui.editingKeymap)
                     } else if session.state == .running, session.keymapEnabled, session.keymap.showHints,
-                              !session.textFieldFocused, !session.aimLocked {
+                              !session.typing, !session.aimLocked {
                         KeymapHintsView(map: session.keymap, rect: rect, aspect: session.geometry.aspect)
                             .allowsHitTesting(false)
                     }

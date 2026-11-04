@@ -71,4 +71,6 @@ final class AppSettings {
 
 extension Notification.Name {
     static let vexBackgroundPolicyChanged = Notification.Name("vexBackgroundPolicyChanged")
+    /// A session saved a game's control schemes; object: the session, userInfo["profile"]: the profile name.
+    static let vexKeymapProfileSaved = Notification.Name("vexKeymapProfileSaved")
 }

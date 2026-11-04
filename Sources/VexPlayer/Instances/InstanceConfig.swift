@@ -110,6 +110,9 @@ struct InstanceConfig: Codable, Identifiable, Hashable, Sendable {
     var appliedProfileMarker: String? { try? String(contentsOf: profileMarkerFile, encoding: .utf8) }
     /// System partitions must stay writable while a profile is (or was) written into them.
     var needsWritableSystem: Bool { deviceProfile != nil || appliedProfileMarker != nil }
+    /// Android's Bluetooth has been switched off, so the instance starts without netsim (see InstanceSession.netsimFeatures).
+    var bluetoothOffMarkerFile: URL { avdDir.appendingPathComponent("vex-bluetooth-off.txt") }
+    var quickbootSnapshotDir: URL { avdDir.appendingPathComponent("snapshots/default_boot") }
     /// Which version of the Lite package list has been applied.
     var liteMarkerFile: URL { avdDir.appendingPathComponent("vex-lite.txt") }
     var avdIni: URL { AppPaths.avdHome.appendingPathComponent("\(id).ini") }

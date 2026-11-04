@@ -65,7 +65,7 @@ enum LiteEdition {
 
     /// Applied once, like the package list: the user can turn any of these back on in Android's settings.
     static let minimalSettings = [
-        "cmd bluetooth_manager disable", "cmd location set-location-enabled false",
+        "cmd location set-location-enabled false",
         "settings put global wifi_scan_always_enabled 0", "settings put global ble_scan_always_enabled 0",
         "settings put secure spell_checker_enabled 0", "bmgr enable false",
     ]

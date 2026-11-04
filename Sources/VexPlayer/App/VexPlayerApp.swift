@@ -31,16 +31,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         launchFromArguments()
     }
 
-    /// `VexPlayer --launch <name or id>` starts an instance straight away (shortcuts, scripts).
+    /// `VexPlayer --launch <name or id> [--launch <name or id> …]` starts instances straight away (shortcuts, scripts).
     private func launchFromArguments() {
         let args = CommandLine.arguments
-        guard let i = args.firstIndex(of: "--launch"), i + 1 < args.count else { return }
-        let key = args[i + 1]
         let store = InstanceStore.shared
-        guard let config = store.instances.first(where: { $0.id == key || $0.name == key }) else { return }
-        let session = store.session(for: config)
-        if !session.state.isAlive { session.start() }
-        PlayerWindows.shared.show(session)
+        for (i, arg) in args.enumerated() where arg == "--launch" && i + 1 < args.count {
+            let key = args[i + 1]
+            guard let config = store.instances.first(where: { $0.id == key || $0.name == key }) else { continue }
+            let session = store.session(for: config)
+            if !session.state.isAlive { session.start() }
+            PlayerWindows.shared.show(session)
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -56,7 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         alive.forEach { $0.stop() }
         Task { @MainActor in
-            let deadline = Date().addingTimeInterval(60)
+            let deadline = Date().addingTimeInterval(AppPaths.emulatorStopTimeout + 20)
             while alive.contains(where: { $0.state.isAlive }) && Date() < deadline {
                 try? await Task.sleep(for: .milliseconds(200))
             }

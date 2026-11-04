@@ -105,9 +105,12 @@ struct E2ETests {
             session.home()
             try await Task.sleep(for: .seconds(1))
         }
+        // A scheme saved for the launcher would take the keys; this step checks text input itself.
+        session.keymapEnabled = false
         session.input.keyDown(0x00)   // A
         session.input.keyUp(0x00)
         let focused = await waitUntil(8) { session.textFieldFocused }
+        log("keyboard requested by the launcher: \(session.keyboardRequested)")
         log("text field focus from IME: \(focused)")
         #expect(focused)
         session.ime.commit("привет")
@@ -116,6 +119,7 @@ struct E2ETests {
         let field = ui.range(of: #"text="[^"]*" resource-id="[^"]*:id/input""#, options: .regularExpression).map { String(ui[$0]) } ?? "?"
         log("search field: \(field)")
         #expect(field.contains("text=\"aпривет\""))
+        session.keymapEnabled = true
         session.home()
         _ = await waitUntil(10) { session.foregroundPackage?.contains("launcher") == true }
 
@@ -135,7 +139,10 @@ struct E2ETests {
         try await session.adb.shell("settings put system user_rotation 0")
         _ = await waitUntil(10) { session.geometry.rotation == 0 }
 
-        // 5. Graceful stop saves Quickboot; the second start should be much faster.
+        // 5. Graceful stop saves Quickboot; the second start should be much faster, except right after the instance
+        // switched Bluetooth off: that start drops netsim and boots cold once (see InstanceSession.netsimFeatures).
+        let leavingNetsim = !session.logLines.joined().contains("-BluetoothEmulation")
+        _ = await waitUntil(60) { config.bluetoothOffMarkerFile.fileExists }
         t0 = Date()
         session.stop()
         try #require(await waitUntil(120) { !session.state.isAlive }, "stop hung")
@@ -148,7 +155,7 @@ struct E2ETests {
         let quick = Date().timeIntervalSince(t0)
         log("boot #2 (quickboot): \(String(format: "%.1f", quick)) s")
         #expect(session.state == .running)
-        if config.fastBoot { #expect(quick < 10) }
+        if config.fastBoot && !leavingNetsim { #expect(quick < 10) }
 
         session.stop()
         _ = await waitUntil(120) { !session.state.isAlive }
@@ -209,7 +216,7 @@ struct E2ETests {
     /// Minimal, like a game instance (with the device profile on Google APIs): Google services off, VexIME the
     /// keyboard, and Android still starts cleanly after a stop (Quickboot). The instance is deleted afterwards.
     /// VEX_E2E_TAGS=google_apis runs one image only.
-    static let minimalTags = ProcessInfo.processInfo.environment["VEX_E2E_TAGS"]?.split(separator: ",").map(String.init)
+    nonisolated static let minimalTags = ProcessInfo.processInfo.environment["VEX_E2E_TAGS"]?.split(separator: ",").map(String.init)
         ?? ["google_apis", "google_apis_playstore"]
 
     @Test(arguments: minimalTags)
@@ -263,6 +270,7 @@ struct E2ETests {
             if ime != ImeBridge.component { try? await Task.sleep(for: .seconds(1)) }
         }
         #expect(ime == ImeBridge.component)
+        try #require(await waitUntil(60) { config.bluetoothOffMarkerFile.fileExists }, "Bluetooth never switched off")
         let state = try await session.adb.shell("settings get global bluetooth_on; settings get secure location_mode; getprop ro.product.model")
             .split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
         log("minimal state: ime \(ime) | \(state.joined(separator: " | "))")
@@ -291,6 +299,47 @@ struct E2ETests {
         #expect(imeAfterRestart == ImeBridge.component)
         let mem = (try? await session.adb.shell("dumpsys meminfo | grep -E 'Used RAM|Free RAM'; true")) ?? ""
         log("minimal meminfo: \(mem.replacingOccurrences(of: "\n", with: " | "))")
+    }
+
+    /// Instances stop sharing netsimd: the first start switches Android's Bluetooth off, the next one runs without
+    /// Bluetooth/UWB emulation and netsim Wi-Fi, with working internet and no Bluetooth crashes. Deleted afterwards.
+    @Test func runsWithoutNetsimAfterFirstStart() async throws {
+        let path = "system-images;android-36;google_apis;arm64-v8a"
+        try #require(SDKManager.shared.installedImages.contains { $0.path == path }, "Google APIs image not installed")
+        let store = InstanceStore.shared
+        var config = InstanceConfig(id: store.nextID(), name: "E2E-NoNetsim", imagePath: path)
+        config.edition = .lite
+        config.ramMB = InstanceConfig.defaultLiteRAM
+        config = try store.create(config)
+        let session = store.session(for: config)
+        var failure: Error?
+        do {
+            session.start()
+            try #require(await waitUntil(600) { session.state == .running || !session.state.isAlive }, "never booted")
+            try #require(await waitUntil(90) { config.bluetoothOffMarkerFile.fileExists }, "Bluetooth never switched off")
+            #expect(session.logLines.joined().contains("Successfully initialized netsim"))
+            session.stop()
+            try #require(await waitUntil(180) { !session.state.isAlive }, "never stopped")
+
+            session.start()
+            try #require(await waitUntil(600) { session.state == .running || !session.state.isAlive }, "never booted again")
+            try #require(session.state == .running, "state \(session.state.label)")
+            let emulatorLog = session.logLines.joined()
+            #expect(emulatorLog.contains("-BluetoothEmulation,-Uwb,-WiFiPacketStream"))
+            #expect(!emulatorLog.contains("Successfully initialized netsim"))
+            try? await Task.sleep(for: .seconds(60))
+            let check = try await session.adb.shell("settings get global bluetooth_on; logcat -d -b crash | grep -c '>>> com.google.android.bluetooth'; dumpsys connectivity | grep -c 'VALIDATED'; true")
+                .split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+            log("without netsim: bluetooth_on | bluetooth crashes | validated lines = \(check.joined(separator: " | "))")
+            #expect(check.count == 3 && check[0] == "0" && check[1] == "0" && (Int(check[2]) ?? 0) > 0)
+        } catch {
+            failure = error
+        }
+        dumpLog(session)
+        session.forceStop()
+        _ = await waitUntil(60) { !session.state.isAlive }
+        try store.delete(config.id)
+        if let failure { throw failure }
     }
 
     /// Android 13 and 14 can't use guest ANGLE on MoltenVK: the Vulkan setting must fall back to OpenGL (see GPUMode.minGuestAngleAPI).

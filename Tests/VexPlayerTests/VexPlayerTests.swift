@@ -165,6 +165,18 @@ import Testing
     }
 }
 
+@Suite struct ImeFocusTests {
+    @Test func focusReportsSayWhetherAKeyboardWasRequested() {
+        #expect(ImeBridge.parseFocus("0") == ImeBridge.Focus())
+        // A game's hidden field: focused, no keyboard asked for, so the key mapping stays on.
+        #expect(ImeBridge.parseFocus("1|1|0") == ImeBridge.Focus(field: true, keyboard: false))
+        // Chat opened: the game asked for a keyboard.
+        #expect(ImeBridge.parseFocus("1|524289|1") == ImeBridge.Focus(field: true, keyboard: true))
+        // VexIME 2 sent no keyboard flag.
+        #expect(ImeBridge.parseFocus("1|1") == ImeBridge.Focus(field: true, keyboard: false))
+    }
+}
+
 @Suite struct DisplayEventTests {
     @Test func resumedActivityGivesThePackage() {
         let full = "I/wm_set_resumed_activity(  639): [0,com.android.chrome/org.chromium.chrome.browser.ChromeTabbedActivity,realStartActivityLocked - onActivityStateChanged]"

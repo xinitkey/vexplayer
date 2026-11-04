@@ -8,9 +8,22 @@ final class ImeBridge: @unchecked Sendable {
     static let component = "app.vexplayer.ime/.VexIME"
     static let socketName = "vexplayer_ime"
     /// Must match android:versionCode in android/vexime/AndroidManifest.xml.
-    static let version = 2
+    static let version = 3
 
-    var onFocus: (@Sendable (Bool) -> Void)?
+    var onFocus: (@Sendable (Focus) -> Void)?
+
+    /// A focused text field, and whether the app asked for a keyboard for it (protocol 3+).
+    struct Focus: Equatable, Sendable {
+        var field = false
+        var keyboard = false
+    }
+
+    /// "1|inputType|keyboard" or "0".
+    static func parseFocus(_ payload: String) -> Focus {
+        let parts = payload.split(separator: "|", omittingEmptySubsequences: false)
+        guard parts.first == "1" else { return Focus() }
+        return Focus(field: true, keyboard: parts.count > 2 && parts[2] == "1")
+    }
     var onConnection: (@Sendable (Bool) -> Void)?
 
     private let lock = NSLock()
@@ -81,7 +94,7 @@ final class ImeBridge: @unchecked Sendable {
                     retryDelay = 1
                     onConnection?(true)
                 case UInt8(ascii: "F"):
-                    onFocus?(payload.hasPrefix("1"))
+                    onFocus?(Self.parseFocus(payload))
                 default:
                     break
                 }

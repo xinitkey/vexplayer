@@ -79,6 +79,8 @@ Place controls right on top of the game, bind them to keys, mouse buttons or gam
 
 Run several Android devices side by side, each with its own CPU, RAM, resolution, Android version and device model. Clones are instant and take no extra disk space until they diverge, thanks to APFS copy-on-write.
 
+Instances don't share anything at run time. The stock emulator routes Bluetooth, UWB and Wi-Fi of every running instance through one shared daemon (netsimd), and when its connection drops, the emulator's Bluetooth transport aborts while reconnecting and takes a running game down with it. VexPlayer switches Android's Bluetooth off on an instance's first start (nothing in an emulator uses it: gamepads connect to the Mac) and from then on starts it without Bluetooth and UWB emulation, with Wi-Fi on the emulator's own network stack.
+
 <p align="center">
 <img src="docs/media/instances.png" alt="Instance manager with two Android instances" width="760">
 </p>
@@ -239,7 +241,7 @@ Activity Monitor shows an emulator at roughly twice its guest RAM (a 3 GB instan
 
 ## Minimal edition
 
-**Minimal** goes further than Lite, for an instance that only needs to run a game and a browser. On top of everything Lite switches off, it disables Google Play services, the Play Store and Gboard, plus the system apps Android wakes at boot for features neither uses: work profile setup, IMS entitlement, the calendar provider, dynamic system updates, the backup transport, cell broadcasts, the print spooler, MMS, the live wallpaper picker, the storage manager and a few more. It also turns off Bluetooth, location, Wi-Fi and Bluetooth background scanning, the spell checker and backup; these are set only once, so you can turn them back on in Android's settings. VexIME takes Gboard's place as the keyboard.
+**Minimal** goes further than Lite, for an instance that only needs to run a game and a browser. On top of everything Lite switches off, it disables Google Play services, the Play Store and Gboard, plus the system apps Android wakes at boot for features neither uses: work profile setup, IMS entitlement, the calendar provider, dynamic system updates, the backup transport, cell broadcasts, the print spooler, MMS, the live wallpaper picker, the storage manager and a few more. It also turns off location, Wi-Fi and Bluetooth background scanning, the spell checker and backup (Bluetooth is off on every instance, see [Multi-instance](#-multi-instance)); these are set only once, so you can turn them back on in Android's settings. VexIME takes Gboard's place as the keyboard.
 
 Chrome and WebView, the package installer and Files stay, so games are installed from the browser as APKs. Apps that need Google services (the Play Store, Google sign-in, push notifications) won't work. Minimal is offered for Android 16 and newer: the Chrome in older images never gets past its first-run screen without Google Play services.
 

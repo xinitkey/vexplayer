@@ -25,11 +25,13 @@ import java.util.concurrent.Executors;
  * Wire format on the abstract socket "vexplayer_ime", both directions:
  * [type: u8][length: u32 big-endian][UTF-8 payload].
  * Host → IME: 'C' commit text, 'M' set composing text (empty clears it), 'S' reset the sensor rate.
- * IME → host: 'H' hello (protocol version), 'F' focus ("1|inputType" or "0").
+ * IME → host: 'H' hello (protocol version), 'F' focus ("1|inputType|keyboard" or "0"), where keyboard is
+ * 1 while the app has asked for a keyboard (a game opening its chat) and 0 for a field that is merely focused
+ * (games often keep a hidden one focused all the time).
  */
 public class VexIME extends InputMethodService {
     private static final String SOCKET = "vexplayer_ime";
-    private static final String PROTOCOL = "2";
+    private static final String PROTOCOL = "3";
     /** Background services sometimes leave the emulator's sensor stream fast; see SensorReset. */
     private static final long SENSOR_RESET_INTERVAL_MS = 60_000;
 
@@ -38,6 +40,9 @@ public class VexIME extends InputMethodService {
     private volatile DataOutputStream out;
     private volatile boolean running = true;
     private volatile String focus = "0";
+    // Main thread only.
+    private int editorType = InputType.TYPE_NULL;
+    private boolean keyboardRequested;
 
     private final Runnable sensorReset = new Runnable() {
         @Override
@@ -79,13 +84,41 @@ public class VexIME extends InputMethodService {
     public void onStartInput(EditorInfo info, boolean restarting) {
         super.onStartInput(info, restarting);
         boolean editable = info != null && (info.inputType & InputType.TYPE_MASK_CLASS) != InputType.TYPE_NULL;
-        send('F', editable ? "1|" + info.inputType : "0");
+        editorType = editable ? info.inputType : InputType.TYPE_NULL;
+        if (!restarting) keyboardRequested = false;
+        reportFocus();
+    }
+
+    /** The app asked for a keyboard (showSoftInput). Still never show one: the Mac keyboard types. */
+    @Override
+    public boolean onShowInputRequested(int flags, boolean configChange) {
+        if (editorType != InputType.TYPE_NULL && !keyboardRequested) {
+            keyboardRequested = true;
+            reportFocus();
+        }
+        return false;
+    }
+
+    /** Called for hideSoftInput too, even though no window was ever shown. */
+    @Override
+    public void hideWindow() {
+        if (keyboardRequested) {
+            keyboardRequested = false;
+            reportFocus();
+        }
+        super.hideWindow();
     }
 
     @Override
     public void onFinishInput() {
         super.onFinishInput();
-        send('F', "0");
+        editorType = InputType.TYPE_NULL;
+        keyboardRequested = false;
+        reportFocus();
+    }
+
+    private void reportFocus() {
+        send('F', editorType == InputType.TYPE_NULL ? "0" : "1|" + editorType + "|" + (keyboardRequested ? 1 : 0));
     }
 
     private void serve() {

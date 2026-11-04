@@ -3,6 +3,7 @@ import Darwin
 import EmulatorAPI
 import Foundation
 import Observation
+import os
 
 /// Thread-safe hand-off point between the gRPC frame stream and whoever draws/records.
 final class FrameSink: @unchecked Sendable {
@@ -63,6 +64,11 @@ final class InstanceSession: Identifiable {
     private(set) var keymapProfile = KeymapProfile.starter()
     var keymapEnabled = true { didSet { input.keymapEnabled = keymapEnabled; if !keymapEnabled { input.releaseAll() } } }
     private(set) var textFieldFocused = false
+    private(set) var keyboardRequested = false
+    /// Mac keys type into Android instead of driving the key mapping. In an app without a scheme any focused
+    /// field takes them; a game only gets text once it asks for a keyboard (its chat), because games often
+    /// keep a hidden field focused while you play.
+    var typing: Bool { textFieldFocused && (keyboardRequested || !keymapEnabled || keymap.controls.isEmpty) }
     private(set) var aimLocked = false
     private(set) var consolePort = 0
     private(set) var grpcPort = 0
@@ -94,6 +100,7 @@ final class InstanceSession: Identifiable {
     @ObservationIgnored private var vmPaused = false
     @ObservationIgnored private var pauseTask: Task<Void, Never>?
     @ObservationIgnored private var policyObserver: NSObjectProtocol?
+    @ObservationIgnored private var keymapObserver: NSObjectProtocol?
 
     var serial: String { "emulator-\(consolePort)" }
     var adb: ADB { ADB(serial: serial) }
@@ -112,6 +119,17 @@ final class InstanceSession: Identifiable {
             forName: .vexBackgroundPolicyChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.updateProcessPriority() }
         }
+        // Two windows of the same game share its schemes: without this, each kept its own copy and the
+        // next save from either one overwrote what the other had changed.
+        keymapObserver = NotificationCenter.default.addObserver(
+            forName: .vexKeymapProfileSaved, object: nil, queue: .main) { [weak self] note in
+            let profile = note.userInfo?["profile"] as? String
+            let sender = (note.object as AnyObject?).map(ObjectIdentifier.init)
+            MainActor.assumeIsolated {
+                guard let self, sender != ObjectIdentifier(self), profile == self.keymapProfileName else { return }
+                self.loadKeymap()
+            }
+        }
     }
 
     // MARK: Lifecycle
@@ -124,6 +142,7 @@ final class InstanceSession: Identifiable {
         }
         // Regenerate config.ini every launch so tuning from newer app versions reaches old instances.
         try? config.configIni().write(to: config.avdDir.appendingPathComponent("config.ini"), atomically: true, encoding: .utf8)
+        discardBrokenSnapshot()
         state = .starting
         logLines = []
         let logURL = AppPaths.logs.appendingPathComponent("\(config.id).log")
@@ -184,9 +203,18 @@ final class InstanceSession: Identifiable {
         tasks.append(Task { await self.connectAndBoot(pid: p.processIdentifier) })
     }
 
+    /// Bluetooth and UWB emulation and Wi-Fi packet streaming all go through netsimd, one daemon shared by every
+    /// running emulator. When its stream drops, the emulator's Bluetooth/UWB transport aborts while reconnecting
+    /// (std::bad_function_call under PacketStreamerTransport::OnDone), killing an instance mid-game. Without them
+    /// Wi-Fi runs on the emulator's own network stack and instances no longer share anything. Android's Bluetooth
+    /// must be off first: with no controller it crashes six times and leaves an error dialog on screen.
+    static let netsimFeatures = ["-BluetoothEmulation", "-Uwb", "-WiFiPacketStream"]
+    private var runsWithoutNetsim: Bool { config.bluetoothOffMarkerFile.fileExists }
+    private var features: [String] { config.effectiveGPUMode.features + (runsWithoutNetsim ? Self.netsimFeatures : []) }
+
     private var launchSignatureFile: URL { config.avdDir.appendingPathComponent("vex-launch.txt") }
     private var launchSignature: String {
-        "\(config.effectiveGPUMode.rawValue)|\(config.effectiveGPUMode.features.joined(separator: ","))|\(AppSettings.shared.hiddenQtWindow)"
+        "\(config.effectiveGPUMode.rawValue)|\(features.joined(separator: ","))|\(AppSettings.shared.hiddenQtWindow)"
     }
 
     private func launchArguments() -> [String] {
@@ -202,7 +230,7 @@ final class InstanceSession: Identifiable {
             "-camera-back", "none", "-camera-front", "none",
         ]
         args += settings.hiddenQtWindow ? ["-qt-hide-window"] : ["-no-window"]
-        if !config.effectiveGPUMode.features.isEmpty { args += ["-feature", config.effectiveGPUMode.features.joined(separator: ",")] }
+        if !features.isEmpty { args += ["-feature", features.joined(separator: ",")] }
         if !config.audioEnabled { args.append("-no-audio") }
         if !config.fastBoot { args.append("-no-snapshot-save") }
         // A snapshot taken under other GPU features would restore a guest driver that no longer matches.
@@ -224,26 +252,64 @@ final class InstanceSession: Identifiable {
             return
         }
         guard let p = process, state.isAlive, state != .stopping else { return }
+        let wasRunning = state == .running
         state = .stopping
         input.releaseAll()
         stopVideoRecording()
         pauseTask?.cancel()
-        if vmPaused, let client {
-            // Quickboot saves a running VM; wake it first.
-            vmPaused = false
-            Task {
-                try? await client.setVMState(.running)
-                p.interrupt()
-            }
-        } else {
+        let resume = vmPaused ? client : nil
+        vmPaused = false
+        stopSavesSnapshot = wasRunning && config.fastBoot
+        snapshotSaved = false
+        Task {
+            // Quickboot saves a running VM, and a paused one can't sync: wake it first.
+            if let resume { try? await resume.setVMState(.running) }
+            if wasRunning { await syncGuestDisks() }
             p.interrupt()
         }
-        Task { [weak self] in
-            try? await Task.sleep(for: .seconds(45))
+        Task {
+            // The launcher kills qemu by itself emulatorStopTimeout after the interrupt (see sdkEnvironment);
+            // this only covers a launcher that hangs.
+            let deadline = Date().addingTimeInterval(AppPaths.emulatorStopTimeout + 30)
+            while p.isRunning && Date() < deadline { try? await Task.sleep(for: .milliseconds(500)) }
             if p.isRunning { p.terminate() }
             try? await Task.sleep(for: .seconds(5))
             if p.isRunning { kill(p.processIdentifier, SIGKILL) }
-            _ = self
+        }
+    }
+
+    /// Set by stop() when the emulator is expected to save Quickboot on exit, and by the log line that says it did.
+    private var stopSavesSnapshot = false
+    private var snapshotSaved = false
+
+    /// A Quickboot save cut off by a kill leaves an empty or partial RAM image next to disk snapshots. The emulator
+    /// may still try to restore it, so drop it and let the next start boot cold from the disks.
+    private func discardSnapshot(_ reason: String) {
+        let dir = config.quickbootSnapshotDir
+        guard dir.fileExists else { return }
+        try? FileManager.default.removeItem(at: dir)
+        appendLog("Quickboot snapshot discarded (\(reason)); the next start boots cold\n")
+    }
+
+    private func discardBrokenSnapshot() {
+        let ram = config.quickbootSnapshotDir.appendingPathComponent("ram.bin")
+        let size = (try? FileManager.default.attributesOfItem(atPath: ram.path)[.size] as? Int) ?? nil
+        if size == 0 { discardSnapshot("empty RAM image") }
+    }
+
+    /// Android keeps its latest writes in its page cache, and neither a Quickboot save nor the emulator's exit
+    /// flushes them: the next cold boot (Quickboot off, a snapshot that fails to load, new launch flags) came up
+    /// without the last seconds of changes, a just-installed app included. Waits at most 10 s, so a hung
+    /// Android can't hold up the stop.
+    private func syncGuestDisks() async {
+        let adb = adb
+        let done = OSAllocatedUnfairLock(initialState: false)
+        Task.detached {
+            _ = try? await adb.shell("sync")
+            done.withLock { $0 = true }
+        }
+        for _ in 0..<40 where !done.withLock({ $0 }) {
+            try? await Task.sleep(for: .milliseconds(250))
         }
     }
 
@@ -276,6 +342,8 @@ final class InstanceSession: Identifiable {
         process = nil
         stopVideoRecording()
         if let a = activity { ProcessInfo.processInfo.endActivity(a); activity = nil }
+        if state == .stopping && stopSavesSnapshot && !snapshotSaved { discardSnapshot("the save didn't finish") }
+        stopSavesSnapshot = false
         try? logFile?.close()
         ime.stop()
         imeConnected = false
@@ -296,6 +364,7 @@ final class InstanceSession: Identifiable {
     private func appendLog(_ text: String) {
         logFile?.write(Data(text.utf8))
         for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            if stopSavesSnapshot && line.contains("Saving snapshot") && line.contains(" took ") { snapshotSaved = true }
             logLines.append(String(line) + "\n")
         }
         if logLines.count > 600 { logLines.removeFirst(logLines.count - 600) }
@@ -450,7 +519,8 @@ final class InstanceSession: Identifiable {
                 if case .textViewFocus(let f)? = n.type {
                     Task { @MainActor in
                         guard self?.imeConnected == false else { return }
-                        self?.setTextFocus(f.textViewHasFocus)
+                        // Without VexIME nothing says whether a keyboard was asked for: any focus counts.
+                        self?.setTextFocus(ImeBridge.Focus(field: f.textViewHasFocus, keyboard: f.textViewHasFocus))
                     }
                 }
             }
@@ -561,6 +631,7 @@ final class InstanceSession: Identifiable {
             await selectIME(onlyIfNone: true)
         }
         await adb.resetSensorRate()
+        if !runsWithoutNetsim { await turnBluetoothOff() }
 
         // Without the IME nothing inside Android resets the sensor rate on its own (VexIME does every minute).
         while !Task.isCancelled && state == .running {
@@ -582,17 +653,23 @@ final class InstanceSession: Identifiable {
         guard (try? await adb.shell("for p in \(list.joined(separator: " ")); do cmd package disable-user --user 0 $p >/dev/null 2>&1; done; \(settings)true")) != nil else {
             return appendLog("\(minimal ? "Minimal" : "Lite") edition not applied: adb failed, retrying next boot\n")
         }
-        if minimal {
-            // The Bluetooth process takes ~8 s to exit after `disable`; a Quickboot snapshot taken before that
-            // brings it back half-stopped and it crashes on restore.
-            for _ in 0..<30 where !Task.isCancelled {
-                guard let pid = try? await adb.shell("pidof com.google.android.bluetooth; true"),
-                      !pid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { break }
-                try? await Task.sleep(for: .seconds(1))
-            }
-        }
         try? marker.write(to: config.liteMarkerFile, atomically: true, encoding: .utf8)
         appendLog("\(minimal ? "Minimal" : "Lite") edition applied (\(list.count) packages disabled)\n")
+    }
+
+    /// Once per instance, while the emulated controller is still there: switch Android's Bluetooth off so the next
+    /// start can drop netsim (see netsimFeatures). The process takes ~8 s to exit, and a Quickboot snapshot taken
+    /// before that brings it back half-stopped and it crashes on restore, so the marker waits for it.
+    private func turnBluetoothOff() async {
+        _ = try? await adb.shell("cmd bluetooth_manager disable >/dev/null 2>&1; true")
+        for _ in 0..<30 where !Task.isCancelled && state == .running {
+            if let out = try? await adb.shell("settings get global bluetooth_on; pidof com.google.android.bluetooth; true"),
+               out.split(whereSeparator: \.isNewline).map({ $0.trimmingCharacters(in: .whitespaces) }) == ["0"] {
+                try? "off".write(to: config.bluetoothOffMarkerFile, atomically: true, encoding: .utf8)
+                return appendLog("Bluetooth is off: the next start runs without netsim\n")
+            }
+            try? await Task.sleep(for: .seconds(1))
+        }
     }
 
     private func installAgent(_ apk: URL) async {
@@ -644,19 +721,22 @@ final class InstanceSession: Identifiable {
                 self?.appendLog("VexIME \(connected ? "connected" : "disconnected")\n")
             }
         }
-        ime.onFocus = { [weak self] focused in
+        ime.onFocus = { [weak self] focus in
             Task { @MainActor in
-                self?.appendLog("VexIME text focus: \(focused)\n")
-                self?.setTextFocus(focused)
+                guard let self, focus != ImeBridge.Focus(field: self.textFieldFocused, keyboard: self.keyboardRequested) else { return }
+                self.appendLog("VexIME text focus: \(focus.field), keyboard requested: \(focus.keyboard)\n")
+                self.setTextFocus(focus)
             }
         }
         ime.start(port: port)
     }
 
-    private func setTextFocus(_ focused: Bool) {
-        textFieldFocused = focused
-        input.textFieldFocused = focused
-        if focused { input.engine.releaseAll() }
+    private func setTextFocus(_ focus: ImeBridge.Focus) {
+        textFieldFocused = focus.field
+        keyboardRequested = focus.keyboard
+        input.textFieldFocused = focus.field
+        input.keyboardRequested = focus.keyboard
+        if typing { input.engine.releaseAll() }
     }
 
     // MARK: Clipboard
@@ -700,7 +780,14 @@ final class InstanceSession: Identifiable {
             if let package { foregroundChanged(package) }
             for await line in adb.shellLines(ADB.displayEventsCommand) {
                 if line.contains("configuration_changed") {
-                    if let rotation = await adb.rotation() { applyRotation(rotation) }
+                    // The display reports its new orientation up to ~0.3 s after the event (longer on a busy Mac),
+                    // and no further event follows: re-read a couple of times before settling.
+                    let before = geometry.rotation
+                    for delay in [0, 300, 1000] {
+                        if delay > 0 { try? await Task.sleep(for: .milliseconds(delay)) }
+                        if let rotation = await adb.rotation() { applyRotation(rotation) }
+                        if geometry.rotation != before { break }
+                    }
                 } else if let package = ADB.resumedPackage(in: line) {
                     foregroundChanged(package)
                 }
@@ -795,6 +882,7 @@ final class InstanceSession: Identifiable {
     private func persistProfile() {
         KeymapStore.saveProfile(keymapProfile, for: foregroundPackage)
         applyActiveScheme()
+        NotificationCenter.default.post(name: .vexKeymapProfileSaved, object: self, userInfo: ["profile": keymapProfileName])
     }
 
     private func applyActiveScheme() {
