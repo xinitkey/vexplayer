@@ -487,6 +487,13 @@ final class InstanceSession: Identifiable {
             self.settled = true
             self.updateProcessPriority()
         })
+        tasks.append(Task {
+            // One dumpsys every 15 s, only while someone looks at the screen (see refreshForeground).
+            while !Task.isCancelled && self.state.isAlive {
+                try? await Task.sleep(for: .seconds(15))
+                if self.isWatched && !self.keymapEditing { await self.refreshForeground() }
+            }
+        })
     }
 
     private func discoverToken(pid: Int32) async -> String? {
@@ -888,9 +895,32 @@ final class InstanceSession: Identifiable {
         frameSink.renderer?.rotation = turns
     }
 
+    /// Schemes are stored per foreground app, so a missed switch loads, edits and imports the wrong app's schemes
+    /// (a game's schemes ended up under the launcher). The event stream can miss one, so ask Android directly
+    /// when it matters: before the editor opens, when a window comes to the front, and every 15 s on screen.
+    func refreshForeground() async {
+        guard state == .running, let package = await adb.foregroundPackage() else { return }
+        foregroundChanged(package)
+    }
+
+    /// While the key mapping editor is open the scheme it edits stays loaded; a switch is applied on close.
+    var keymapEditing = false {
+        didSet {
+            guard !keymapEditing, let package = deferredForeground else { return }
+            deferredForeground = nil
+            foregroundChanged(package)
+        }
+    }
+    @ObservationIgnored private var deferredForeground: String?
+
     private func foregroundChanged(_ package: String) {
+        if keymapEditing {
+            deferredForeground = package
+            return
+        }
         guard package != foregroundPackage else { return }
         foregroundPackage = package
+        appendLog("Foreground: \(package)\n")
         loadKeymap()
         // A game that read sensors at 50+ Hz leaves the emulator streaming them after it closes.
         // Give the old app a moment to unregister its listeners first.
@@ -955,6 +985,8 @@ final class InstanceSession: Identifiable {
     }
 
     func addImportedScheme(_ scheme: KeymapScheme) {
+        var scheme = scheme
+        scheme.name = keymapProfile.uniqueName(scheme.name)
         keymapProfile.schemes.append(scheme)
         keymapProfile.activeID = scheme.id
         persistProfile()

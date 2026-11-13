@@ -66,15 +66,23 @@ import Testing
 }
 
 @MainActor @Suite struct KeymapEngineTests {
-    final class Sink { var events: [NormTouch] = [] }
+    final class Sink {
+        var events: [NormTouch] = []
+        var times: [TimeInterval] = []
+    }
 
     func engine(_ controls: [KeyControl]) -> (KeymapEngine, Sink) {
         let sink = Sink()
         let e = KeymapEngine(map: Keymap(controls: controls))
         e.aspect = 1
-        e.emit = { sink.events += $0 }
+        e.emit = { touches in
+            sink.events += touches
+            sink.times += touches.map { _ in ProcessInfo.processInfo.systemUptime }
+        }
         return (e, sink)
     }
+
+    func wait(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
 
     @Test func tapHoldsWhileKeyIsDown() {
         var tap = KeyControl.make(.tap, at: 0.3, 0.4)
@@ -88,14 +96,17 @@ import Testing
         #expect(!e.keyDown(KeyCode.w), "unbound keys pass through to Android")
     }
 
-    @Test func joystickPressesCenterThenThrows() {
+    @Test func joystickPressesCenterThenThrows() async {
         let stick = KeyControl.make(.joystick, at: 0.2, 0.7)
         let (e, sink) = engine([stick])
         _ = e.keyDown(KeyCode.d)
+        await wait(150)
         #expect(sink.events.first.map { $0.u == 0.2 && $0.v == 0.7 && $0.down } == true)
+        // The finger stays on the centre for a frame before it moves.
+        #expect(sink.times.count > 1 && sink.times[1] - sink.times[0] >= KeymapEngine.frameGap * 0.9)
         let last = sink.events.last!
         #expect(abs(last.u - (0.2 + stick.radius)) < 1e-9 && abs(last.v - 0.7) < 1e-9)
-        _ = e.keyDown(KeyCode.w)  // diagonal
+        _ = e.keyDown(KeyCode.w)  // diagonal: the finger is down, so it just moves
         let diag = sink.events.last!
         #expect(diag.u > 0.2 && diag.v < 0.7)
         _ = e.keyUp(KeyCode.d)
@@ -103,17 +114,51 @@ import Testing
         #expect(sink.events.last?.down == false)
     }
 
-    @Test func aimRecentersWhenLeavingItsArea() {
+    /// A quick re-press must reach the game as a new touch on the centre, not as the old finger sliding over.
+    @Test func joystickRepressStartsFromCenter() async {
+        let stick = KeyControl.make(.joystick, at: 0.2, 0.7)
+        let (e, sink) = engine([stick])
+        _ = e.keyDown(KeyCode.w)
+        await wait(150)
+        _ = e.keyUp(KeyCode.w)
+        let upIndex = sink.events.count - 1
+        let first = sink.events[upIndex]
+        #expect(!first.down)
+        _ = e.keyDown(KeyCode.d)
+        await wait(150)
+        let next = sink.events[upIndex + 1]
+        #expect(next.down && next.u == 0.2 && next.v == 0.7 && next.id != first.id)
+        #expect(sink.times[upIndex + 1] - sink.times[upIndex] >= KeymapEngine.frameGap * 0.9)
+        #expect(sink.events.last.map { abs($0.u - (0.2 + stick.radius)) < 1e-9 && $0.id == next.id } == true)
+        // Released during the landing: nothing stays pressed.
+        _ = e.keyUp(KeyCode.d)
+        _ = e.keyDown(KeyCode.a)
+        _ = e.keyUp(KeyCode.a)
+        await wait(150)
+        #expect(sink.events.last?.down == false)
+    }
+
+    @Test func aimRecentersWhenLeavingItsArea() async {
         let aim = KeyControl.make(.aim, at: 0.6, 0.5)
         let fire = KeyControl.make(.fire, at: 0.9, 0.7)
         let (e, sink) = engine([aim, fire])
         _ = e.keyDown(KeyCode.grave)
         #expect(e.aimLocked)
-        e.aimDelta(dx: 10, dy: 0, scale: 0.001)
+        #expect(sink.events.last.map { $0.u == 0.6 && $0.down } == true)
+        e.aimDelta(dx: 10, dy: 0, scale: 0.001)   // during the first frame: held back, applied after
+        await wait(80)
         #expect(sink.events.last.map { abs($0.u - 0.61) < 1e-9 } == true)
-        e.aimDelta(dx: 1000, dy: 0, scale: 0.001)  // far beyond the radius → lift and re-press at centre
-        let tail = sink.events.suffix(2)
-        #expect(tail.first?.down == false && tail.last?.down == true && tail.last?.u == 0.6)
+        let before = sink.events.last!
+        e.aimDelta(dx: 1000, dy: 0, scale: 0.001)  // far beyond the area: lift now, land a frame later
+        #expect(sink.events.last.map { !$0.down && $0.id == before.id } == true)
+        let upIndex = sink.events.count - 1
+        await wait(120)
+        let landed = sink.events[upIndex + 1]
+        #expect(landed.down && landed.u == 0.6 && landed.id != before.id)
+        #expect(sink.times[upIndex + 1] - sink.times[upIndex] >= KeymapEngine.frameGap * 0.9)
+        // The motion is carried over, capped to fit the area, and doesn't re-plant again.
+        let moved = sink.events.last!
+        #expect(moved.id == landed.id && moved.down && moved.u > 0.6 && moved.u < 0.6 + aim.radius)
         #expect(e.mouseButton(KeyCode.mouseLeft, down: true))
         #expect(sink.events.last.map { $0.u == 0.9 && $0.down } == true)
         e.releaseAll()
@@ -148,6 +193,18 @@ import Testing
         let scheme = try KeymapStore.importScheme(from: url)
         #expect(scheme.name == "Driving")
         #expect(scheme.keymap.controls.map(\.kind) == [.joystick, .tap])
+    }
+
+    @Test func importedNamesStayDistinct() {
+        let profile = KeymapProfile(activeID: nil, schemes: [KeymapScheme(name: "Driving"), KeymapScheme(name: "Driving (2)")])
+        #expect(profile.uniqueName("Walking") == "Walking")
+        #expect(profile.uniqueName("Driving") == "Driving (3)")
+    }
+
+    @Test func foregroundPackageFromActivityDump() {
+        let dump = "  topResumedActivity=ActivityRecord{739e4af u0 com.example.game/com.example.game.core.MainActivity t12}"
+        #expect(ADB.resumedPackage(inDump: dump) == "com.example.game")
+        #expect(ADB.resumedPackage(inDump: "") == nil)
     }
 
     @Test func profileRoundTripKeepsActiveScheme() throws {

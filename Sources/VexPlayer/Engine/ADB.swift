@@ -106,11 +106,20 @@ struct ADB: Sendable {
         if let r = out.range(of: #"mCurrentOrientation=\d"#, options: .regularExpression) {
             rotation = Int(String(out[r].last!))
         }
-        var package: String?
-        if let r = out.range(of: #"u\d+ ([A-Za-z0-9_.]+)/"#, options: .regularExpression) {
-            package = String(out[r]).split(separator: " ").last.map { String($0.dropLast()) }
-        }
-        return (rotation, package)
+        return (rotation, Self.resumedPackage(inDump: out))
+    }
+
+    /// The package of the activity in front, asked directly: for when the event stream may have missed a switch.
+    func foregroundPackage() async -> String? {
+        let cmd = "dumpsys activity activities 2>/dev/null | grep -m1 -E 'topResumedActivity|mResumedActivity'; true"
+        guard let out = try? await shell(cmd) else { return nil }
+        return Self.resumedPackage(inDump: out)
+    }
+
+    /// `topResumedActivity=ActivityRecord{… u0 com.example.game/.MainActivity t12}` → `com.example.game`.
+    static func resumedPackage(inDump out: String) -> String? {
+        guard let r = out.range(of: #"u\d+ ([A-Za-z0-9_.]+)/"#, options: .regularExpression) else { return nil }
+        return String(out[r]).split(separator: " ").last.map { String($0.dropLast()) }
     }
 
     func rotation() async -> Int? {

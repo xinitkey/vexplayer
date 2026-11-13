@@ -106,7 +106,9 @@ struct KeyControl: Codable, Identifiable, Hashable, Sendable {
             c.radius = 0.06
         case .aim:
             c.key = KeyCode.grave
-            c.radius = 0.12
+            // Each time the finger reaches the edge it is lifted and put back in the middle; a bigger area does
+            // that less often.
+            c.radius = 0.18
         case .fire:
             c.key = KeyCode.mouseLeft
         case .swipe:
@@ -182,6 +184,16 @@ struct KeymapProfile: Codable, Hashable, Sendable {
     static func starter() -> KeymapProfile {
         let scheme = KeymapScheme(name: String(localized: "Scheme 1"))
         return KeymapProfile(activeID: scheme.id, schemes: [scheme])
+    }
+
+    /// `name`, or "name (2)", "name (3)"… when a scheme already has it: two schemes called "Scheme 1" can't be
+    /// told apart in the menu.
+    func uniqueName(_ name: String) -> String {
+        let used = Set(schemes.map(\.name))
+        guard used.contains(name) else { return name }
+        var n = 2
+        while used.contains("\(name) (\(n))") { n += 1 }
+        return "\(name) (\(n))"
     }
 
     /// A free name like "Scheme 3".

@@ -7,6 +7,15 @@ final class PlayerUIState {
     var isFullScreen = false
     var editingKeymap = false
     var showLocation = false
+
+    /// Opens the key mapping editor on the schemes of the app really in front (see InstanceSession.refreshForeground).
+    func openKeymapEditor(_ session: InstanceSession, newScheme: Bool = false) {
+        Task {
+            await session.refreshForeground()
+            if newScheme { session.createScheme(copyingActive: false) }
+            editingKeymap = true
+        }
+    }
     var showLogs = false
 }
 
@@ -199,6 +208,7 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         window?.makeFirstResponder(screenView)
         session.syncHostClipboard()
         apply()
+        Task { await session.refreshForeground() }
     }
 
     func windowDidResignKey(_ notification: Notification) {

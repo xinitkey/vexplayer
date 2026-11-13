@@ -58,6 +58,7 @@ struct PlayerView: View {
         .onChange(of: ui.editingKeymap) { _, editing in
             session.input.releaseAll()
             session.input.suspended = editing
+            session.keymapEditing = editing
         }
     }
 }
@@ -122,7 +123,7 @@ struct PlayerSidebar: View {
                                   active: session.keymapEnabled) { session.keymapEnabled.toggle() }
                         .keyboardShortcut("k", modifiers: .option)
                     SidebarButton(symbol: "slider.horizontal.3", help: "Key mapping editor (⌥E)", active: ui.editingKeymap) {
-                        ui.editingKeymap.toggle()
+                        if ui.editingKeymap { ui.editingKeymap = false } else { ui.openKeymapEditor(session) }
                     }
                     .keyboardShortcut("e", modifiers: .option)
                     .disabled(!running)
@@ -185,11 +186,8 @@ struct PlayerSidebar: View {
                 }
             }
             Divider()
-            Button("New scheme…") {
-                session.createScheme(copyingActive: false)
-                ui.editingKeymap = true
-            }
-            Button("Edit the current one…") { ui.editingKeymap = true }
+            Button("New scheme…") { ui.openKeymapEditor(session, newScheme: true) }
+            Button("Edit the current one…") { ui.openKeymapEditor(session) }
         } label: {
             SidebarIcon(symbol: "list.bullet.rectangle")
         }
