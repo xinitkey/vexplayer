@@ -4,6 +4,10 @@ import Foundation
 /// ~/Library/Application Support/VexPlayer so it never collides with Android Studio.
 enum AppPaths {
     static let root: URL = {
+        // VEXPLAYER_HOME runs a separate set of instances (demos, screenshots, experiments) next to the real ones.
+        if let custom = ProcessInfo.processInfo.environment["VEXPLAYER_HOME"], !custom.isEmpty {
+            return URL(fileURLWithPath: (custom as NSString).expandingTildeInPath, isDirectory: true)
+        }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return base.appendingPathComponent("VexPlayer", isDirectory: true)
     }()

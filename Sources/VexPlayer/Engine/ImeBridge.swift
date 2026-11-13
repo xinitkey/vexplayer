@@ -33,11 +33,15 @@ final class ImeBridge: @unchecked Sendable {
 
     static var apkURL: URL? {
         if let url = Bundle.main.url(forResource: "VexIME", withExtension: "apk") { return url }
+        #if DEBUG
         // Development builds and tests run outside the .app: use the copy in the source tree.
         let source = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Resources/VexIME.apk")
         return source.fileExists ? source : nil
+        #else
+        return nil
+        #endif
     }
 
     func start(port: Int) {

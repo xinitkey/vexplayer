@@ -15,6 +15,8 @@ Modern Android (11–17), Metal graphics, key mapping for games, multi-instance,
 
 <img src="docs/media/hero.png" alt="VexPlayer running Android 16 on a Mac" width="860">
 
+**[Download for Apple Silicon](https://github.com/xinitkey/vexplayer/releases/latest)** · macOS 15 or later · free and open source
+
 </div>
 
 ---
@@ -67,7 +69,7 @@ Run several Android devices side by side, each with its own CPU, RAM, resolution
 Instances don't share anything at run time. The stock emulator routes Bluetooth, UWB and Wi-Fi of every running instance through one shared daemon (netsimd), and when its connection drops, the emulator's Bluetooth transport aborts while reconnecting and takes a running game down with it. VexPlayer switches Android's Bluetooth off on an instance's first start (nothing in an emulator uses it: gamepads connect to the Mac) and from then on starts it without Bluetooth and UWB emulation, with Wi-Fi on the emulator's own network stack.
 
 <p align="center">
-<img src="docs/media/instances.png" alt="Instance manager with two Android instances" width="760">
+<img src="docs/media/instances.png" alt="Instance manager with three Android instances" width="760">
 </p>
 
 ### 📦 One-click setup
@@ -138,7 +140,15 @@ Where the speed comes from:
 
 ## Getting started
 
-**Requirements:** a Mac with Apple Silicon, macOS 15 or later, Xcode 16 or later (Swift 6), and about 3 GB of free disk space for the first Android image.
+**Requirements:** a Mac with Apple Silicon, macOS 15 or later, and about 3 GB of free disk space for the first Android image.
+
+**Download:** get `VexPlayer-<version>.zip` from the [latest release](https://github.com/xinitkey/vexplayer/releases/latest), unzip it and move `VexPlayer.app` to Applications. The app isn't notarized by Apple yet, so macOS blocks the first launch: open **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to VexPlayer. Or clear the quarantine flag in Terminal:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/VexPlayer.app
+```
+
+**Or build it yourself** (needs Xcode 16 or later):
 
 ```bash
 git clone https://github.com/xinitkey/vexplayer.git
@@ -301,6 +311,13 @@ swift test                           # unit tests: geometry, key mapping, key co
 VEX_E2E=1 swift test --filter E2E    # end-to-end test on a real emulator (downloads ~2.3 GB the first time)
 scripts/build-app.sh                 # release .app bundle in build/
 scripts/gen-proto.sh                 # regenerate the gRPC client from Protos/
+```
+
+`VEXPLAYER_HOME=/some/folder` runs the app on a separate set of instances (settings stay shared). Symlink `sdk` into that folder to reuse the downloaded emulator and images; that is how the screenshots in this README are made:
+
+```bash
+mkdir -p ~/vex-demo && ln -s ~/Library/Application\ Support/VexPlayer/sdk ~/vex-demo/sdk
+open -n --env VEXPLAYER_HOME=~/vex-demo build/VexPlayer.app --args -AppleLanguages "(en)"
 ```
 
 To re-render the app icon after editing `scripts/make-icon.swift`:

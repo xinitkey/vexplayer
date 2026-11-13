@@ -4,8 +4,14 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CONFIG="${1:-release}"
-swift build -c "$CONFIG" --product VexPlayer
-BIN="$(swift build -c "$CONFIG" --show-bin-path)"
+# Release builds keep the checkout path out of compiled-in file names (asserts in the bundled C libraries).
+FLAGS=()
+if [ "$CONFIG" = release ]; then
+  ROOT="$(pwd)"
+  FLAGS=(-Xswiftc -file-prefix-map -Xswiftc "$ROOT=." -Xcc "-ffile-prefix-map=$ROOT=.")
+fi
+swift build -c "$CONFIG" --product VexPlayer ${FLAGS[@]+"${FLAGS[@]}"}
+BIN="$(swift build -c "$CONFIG" --show-bin-path ${FLAGS[@]+"${FLAGS[@]}"})"
 
 if [ ! -f Resources/AppIcon.icns ]; then
   swift scripts/make-icon.swift build/AppIcon.iconset >/dev/null
